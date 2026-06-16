@@ -7,19 +7,31 @@ extension Card: Identifiable {
 
 struct ContentView: View {
     @Query private var decks: [Deck]
+    @Environment(\.modelContext) private var modelContext
     @State private var selectedTab = 0
     @State private var navigationPath = NavigationPath()
     @State private var cardForSwap: Card?
     @State private var scannedCard: Card?
+    @State private var backfillInProgress = false
 
     private var deck: Deck? { decks.first }
 
     var body: some View {
         if let deck, deck.setupComplete {
             mainTabView
+                .task {
+                    await backfillSideboardIfNeeded(deck: deck)
+                }
         } else {
             SetupView()
         }
+    }
+
+    private func backfillSideboardIfNeeded(deck: Deck) async {
+        guard !backfillInProgress else { return }
+        backfillInProgress = true
+        let service = SetupService()
+        await service.performBackfill(deck: deck, modelContext: modelContext)
     }
 
     private var mainTabView: some View {

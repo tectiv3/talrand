@@ -67,14 +67,6 @@ class SetupService {
         let existingDeck = try? modelContext.fetch(FetchDescriptor<Deck>()).first
 
         if let deck = existingDeck, deck.setupComplete {
-            let addedSideboard = backfillSideboard(deck: deck, bundled: bundled, modelContext: modelContext)
-            if addedSideboard {
-                let sideboardCards = deck.cards.filter { $0.board == "sideboard" }.compactMap(\.card)
-                totalCards = sideboardCards.count
-                for card in sideboardCards where card.frontImageUrl.isEmpty {
-                    await fetchCardData(card: card, modelContext: modelContext)
-                }
-            }
             isComplete = true
             return
         }
@@ -96,6 +88,18 @@ class SetupService {
         deck.setupComplete = true
         try? modelContext.save()
         isComplete = true
+    }
+
+    @MainActor
+    func performBackfill(deck: Deck, modelContext: ModelContext) async {
+        let bundled = DeckLoader.loadBundledDeck()
+        let addedSideboard = backfillSideboard(deck: deck, bundled: bundled, modelContext: modelContext)
+        if addedSideboard {
+            let sideboardCards = deck.cards.filter { $0.board == "sideboard" }.compactMap(\.card)
+            for card in sideboardCards where card.frontImageUrl.isEmpty {
+                await fetchCardData(card: card, modelContext: modelContext)
+            }
+        }
     }
 
     @MainActor
