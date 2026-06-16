@@ -26,3 +26,4 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mtgblue.app
         INFOPLIST_FILE: MTGBlue/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
