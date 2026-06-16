@@ -124,6 +124,16 @@ private struct ScryfallErrorResponse: Codable {
     let details: String
 }
 
+// MARK: - Sets Response
+
+private struct ScryfallSetsResponse: Codable {
+    let data: [ScryfallSetEntry]
+}
+
+private struct ScryfallSetEntry: Codable {
+    let code: String
+}
+
 // MARK: - API Client
 
 actor ScryfallAPI {
@@ -191,6 +201,30 @@ actor ScryfallAPI {
         let encodedNumber = collectorNumber.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? collectorNumber
         let url = "\(baseURL)/cards/\(setCode.lowercased())/\(encodedNumber)"
         return try await request(url: url)
+    }
+
+    func fetchSetCodes() async -> [String] {
+        let cacheKey = "cachedMTGSetCodes"
+        let cacheDateKey = "cachedMTGSetCodesDate"
+        let defaults = UserDefaults.standard
+        let cachedCodes = defaults.stringArray(forKey: cacheKey)
+        let cachedDate = defaults.object(forKey: cacheDateKey) as? Date
+
+        if let codes = cachedCodes, let date = cachedDate,
+           Date().timeIntervalSince(date) < 7 * 24 * 60 * 60 {
+            return codes
+        }
+
+        do {
+            let url = "\(baseURL)/sets"
+            let response: ScryfallSetsResponse = try await request(url: url)
+            let codes = response.data.map { $0.code.uppercased() }
+            defaults.set(codes, forKey: cacheKey)
+            defaults.set(Date(), forKey: cacheDateKey)
+            return codes
+        } catch {
+            return cachedCodes ?? []
+        }
     }
 
     // MARK: - Image URL Helper
