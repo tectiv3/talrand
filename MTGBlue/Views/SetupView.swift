@@ -39,6 +39,11 @@ struct SetupView: View {
             Text("Setting up your deck...")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+
+            Text("Fetching card data, images & rulings from Scryfall")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
         }
     }
 

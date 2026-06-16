@@ -21,13 +21,13 @@ struct ScryfallCardFace: Codable {
 
 struct ScryfallCard: Codable {
     let id: String
-    let oracleId: String
+    let oracleId: String?
     let name: String
     let set: String
     let collectorNumber: String
     let oracleText: String?
     let manaCost: String?
-    let typeLine: String
+    let typeLine: String?
     let power: String?
     let toughness: String?
     let rarity: String

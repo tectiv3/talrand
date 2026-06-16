@@ -173,10 +173,10 @@ class SetupService {
             do {
                 let scryfallCard = try await ScryfallAPI.shared.fetchCard(scryfallId: card.scryfallId)
 
-                card.oracleId = scryfallCard.oracleId
+                card.oracleId = scryfallCard.oracleId ?? ""
                 card.oracleText = scryfallCard.oracleText ?? ""
                 card.manaCost = scryfallCard.manaCost ?? ""
-                card.typeLine = scryfallCard.typeLine
+                card.typeLine = scryfallCard.typeLine ?? card.typeLine
                 card.power = scryfallCard.power
                 card.toughness = scryfallCard.toughness
                 card.rarity = scryfallCard.rarity
@@ -195,7 +195,8 @@ class SetupService {
                     card.rulings.append(rulingObj)
                 }
 
-                let printings = try await ScryfallAPI.shared.fetchAllPrintings(oracleId: scryfallCard.oracleId)
+                let oracleId = scryfallCard.oracleId ?? ""
+                let printings = oracleId.isEmpty ? [] : try await ScryfallAPI.shared.fetchAllPrintings(oracleId: oracleId)
                 for printing in printings {
                     let entry = CollectorNumberEntry(
                         setCode: printing.set,

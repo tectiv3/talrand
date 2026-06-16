@@ -60,7 +60,7 @@ class CardSwapService {
 
             try await cacheImages(for: card, from: scryfallCard)
 
-            let printings = try await ScryfallAPI.shared.fetchAllPrintings(oracleId: scryfallCard.oracleId)
+            let printings = try await ScryfallAPI.shared.fetchAllPrintings(oracleId: scryfallCard.oracleId ?? "")
             for printing in printings {
                 let entry = CollectorNumberEntry(
                     setCode: printing.set,
@@ -89,7 +89,7 @@ class CardSwapService {
         replacing oldCard: Card,
         modelContext: ModelContext
     ) async {
-        if scryfallCard.oracleId == oldCard.oracleId {
+        if let oracleId = scryfallCard.oracleId, oracleId == oldCard.oracleId {
             errorMessage = "That's the same card"
             state = .error
             return
@@ -110,7 +110,7 @@ class CardSwapService {
 
             try await cacheImages(for: card, from: scryfallCard)
 
-            let printings = try await ScryfallAPI.shared.fetchAllPrintings(oracleId: scryfallCard.oracleId)
+            let printings = try await ScryfallAPI.shared.fetchAllPrintings(oracleId: scryfallCard.oracleId ?? "")
             for printing in printings {
                 let entry = CollectorNumberEntry(
                     setCode: printing.set,
@@ -213,13 +213,13 @@ class CardSwapService {
 
         return Card(
             scryfallId: scryfall.id,
-            oracleId: scryfall.oracleId,
+            oracleId: scryfall.oracleId ?? "",
             name: scryfall.name,
             setCode: scryfall.set,
             collectorNumber: scryfall.collectorNumber,
             oracleText: scryfall.oracleText ?? "",
             manaCost: scryfall.manaCost ?? "",
-            typeLine: scryfall.typeLine,
+            typeLine: scryfall.typeLine ?? "",
             power: scryfall.power,
             toughness: scryfall.toughness,
             rarity: scryfall.rarity,
