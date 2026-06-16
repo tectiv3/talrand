@@ -59,7 +59,17 @@ struct DeckListView: View {
                     }
                 } header: {
                     let count = group.entries.reduce(0) { $0 + $1.quantity }
-                    Button {
+                    HStack {
+                        Text("\(group.category) (\(count))")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                    }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
                         withAnimation {
                             if isCollapsed {
                                 collapsedSections.remove(group.category)
@@ -67,17 +77,7 @@ struct DeckListView: View {
                                 collapsedSections.insert(group.category)
                             }
                         }
-                    } label: {
-                        HStack {
-                            Text("\(group.category) (\(count))")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                        }
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
