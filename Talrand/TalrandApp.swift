@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 
 @main
-struct MTGBlueApp: App {
+struct TalrandApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

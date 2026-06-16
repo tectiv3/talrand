@@ -141,7 +141,7 @@ actor ScryfallAPI {
         let config = URLSessionConfiguration.default
         config.httpAdditionalHeaders = [
             "Accept": "application/json",
-            "User-Agent": "MTGBlue/1.0"
+            "User-Agent": "Talrand/1.0"
         ]
         self.session = URLSession(configuration: config)
         self.decoder = JSONDecoder()

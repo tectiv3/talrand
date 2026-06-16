@@ -10,7 +10,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
 
     let captureSession = AVCaptureSession()
 
-    private let processingQueue = DispatchQueue(label: "com.mtgblue.camera.processing")
+    private let processingQueue = DispatchQueue(label: "com.talrand.camera.processing")
     private var lastProcessedTime: CFAbsoluteTime = 0
     private let minimumFrameInterval: CFAbsoluteTime = 0.2
 

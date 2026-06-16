@@ -19,7 +19,7 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSCameraUsageDescription</key>
-	<string>MTG Blue uses the camera to scan collector numbers on your cards</string>
+	<string>Talrand uses the camera to scan collector numbers on your cards</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

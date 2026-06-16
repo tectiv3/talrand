@@ -194,7 +194,7 @@ struct CameraScannerView: View {
             Text("Camera access required")
                 .font(.title2.bold())
 
-            Text("MTG Blue needs camera access to scan collector numbers on your cards.")
+            Text("Talrand needs camera access to scan collector numbers on your cards.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

@@ -32,7 +32,7 @@ struct SetupView: View {
                 .font(.system(size: 56))
                 .foregroundStyle(.blue)
 
-            Text("MTG Blue")
+            Text("Talrand")
                 .font(.largeTitle)
                 .fontWeight(.bold)
 

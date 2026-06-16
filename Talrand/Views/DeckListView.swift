@@ -38,7 +38,7 @@ struct DeckListView: View {
                 ContentUnavailableView("No deck loaded", systemImage: "rectangle.stack")
             }
         }
-        .navigationTitle("MTG Blue")
+        .navigationTitle("Talrand")
     }
 
     @ViewBuilder
