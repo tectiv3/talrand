@@ -49,7 +49,11 @@ struct ContentView: View {
                 .tag(1)
         }
         .sheet(item: $cardForSwap) { card in
-            CardSwapView(oldCard: card)
+            CardSwapView(oldCard: card, onCompleted: { newCard in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    scannedCard = newCard
+                }
+            })
         }
         .sheet(item: $scannedCard) { card in
             NavigationStack {

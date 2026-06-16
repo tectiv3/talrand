@@ -3,6 +3,7 @@ import SwiftData
 
 struct CardSwapView: View {
     let oldCard: Card
+    var onCompleted: ((Card) -> Void)?
 
     @State private var swapService = CardSwapService()
     @Environment(\.modelContext) private var modelContext
@@ -30,7 +31,12 @@ struct CardSwapView: View {
                 case .error:
                     errorView
                 case .completed:
-                    Color.clear.onAppear { dismiss() }
+                    Color.clear.onAppear {
+                        if let newCard = swapService.newCard {
+                            onCompleted?(newCard)
+                        }
+                        dismiss()
+                    }
                 }
             }
             .navigationTitle("Replace Card")
