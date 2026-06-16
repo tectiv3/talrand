@@ -60,136 +60,190 @@ struct DeckListView: View {
 
     @ViewBuilder
     private func deckContent(_ deck: Deck) -> some View {
-        List {
-            commanderSection(deck)
-            ForEach(groupedEntries, id: \.category) { group in
-                let isCollapsed = collapsedSections.contains(group.category)
-                Section {
-                    if !isCollapsed {
-                        ForEach(group.entries, id: \.persistentModelID) { entry in
-                            if let card = entry.card {
-                                NavigationLink(value: card) {
-                                    cardRow(card, quantity: entry.quantity)
-                                }
-                            }
-                        }
-                    }
-                } header: {
-                    let count = group.entries.reduce(0) { $0 + $1.quantity }
-                    HStack {
-                        Text("\(group.category) (\(count))")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                    }
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        withAnimation {
-                            if isCollapsed {
-                                collapsedSections.remove(group.category)
-                            } else {
-                                collapsedSections.insert(group.category)
-                            }
-                        }
-                    }
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                commanderHeader(deck)
+                ForEach(groupedEntries, id: \.category) { group in
+                    categorySection(group.category, entries: group.entries)
+                }
+                if !sideboardEntries.isEmpty {
+                    sideboardSectionView
                 }
             }
-            sideboardSection
+            .padding(.horizontal, 12)
+            .padding(.bottom, 20)
         }
-        .listStyle(.insetGrouped)
+        .background(MTGTheme.darkBg)
         .searchable(text: $searchText, prompt: "Search cards")
     }
 
+    // MARK: - Commander
+
     @ViewBuilder
-    private func commanderSection(_ deck: Deck) -> some View {
+    private func commanderHeader(_ deck: Deck) -> some View {
         if let commander = deck.commander {
-            Section {
-                NavigationLink(value: commander) {
-                    HStack(spacing: 12) {
-                        cardThumbnail(commander, size: CGSize(width: 80, height: 112))
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Commander")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .textCase(.uppercase)
-                            Text(commander.name)
-                                .font(.headline)
+            NavigationLink(value: commander) {
+                ZStack(alignment: .bottomLeading) {
+                    CardThumbnail(card: commander, size: CGSize(width: UIScreen.main.bounds.width - 24, height: 160))
+                        .clipped()
+                        .overlay {
+                            LinearGradient(
+                                colors: [.clear, MTGTheme.darkBg.opacity(0.9)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
                         }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("COMMANDER")
+                            .font(.caption2)
+                            .fontWeight(.heavy)
+                            .tracking(2)
+                            .foregroundStyle(MTGTheme.gold)
+                        Text(commander.name)
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundStyle(MTGTheme.textPrimary)
                     }
-                    .padding(.vertical, 4)
+                    .padding(16)
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(MTGTheme.cardBorder, lineWidth: 1)
+                )
             }
+            .buttonStyle(.plain)
+            .padding(.vertical, 8)
         }
     }
 
-    @ViewBuilder
-    private var sideboardSection: some View {
-        if !sideboardEntries.isEmpty {
-            let isCollapsed = collapsedSections.contains("Sideboard")
-            Section {
-                if !isCollapsed {
-                    ForEach(sideboardEntries.sorted { ($0.card?.name ?? "") < ($1.card?.name ?? "") }, id: \.persistentModelID) { entry in
+    // MARK: - Category Section
+
+    private func categorySection(_ category: String, entries: [DeckEntry]) -> some View {
+        let isCollapsed = collapsedSections.contains(category)
+        let count = entries.reduce(0) { $0 + $1.quantity }
+
+        return VStack(spacing: 0) {
+            sectionHeader(category, count: count, isCollapsed: isCollapsed)
+            if !isCollapsed {
+                VStack(spacing: 1) {
+                    ForEach(entries, id: \.persistentModelID) { entry in
                         if let card = entry.card {
                             NavigationLink(value: card) {
                                 cardRow(card, quantity: entry.quantity)
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
-            } header: {
-                HStack {
-                    Text("Sideboard (\(sideboardEntries.reduce(0) { $0 + $1.quantity }))")
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                }
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation {
-                        if isCollapsed {
-                            collapsedSections.remove("Sideboard")
-                        } else {
-                            collapsedSections.insert("Sideboard")
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sideboardSectionView: some View {
+        let isCollapsed = collapsedSections.contains("Sideboard")
+        let count = sideboardEntries.reduce(0) { $0 + $1.quantity }
+        let sorted = sideboardEntries.sorted { ($0.card?.name ?? "") < ($1.card?.name ?? "") }
+
+        VStack(spacing: 0) {
+            sectionHeader("Sideboard", count: count, isCollapsed: isCollapsed)
+            if !isCollapsed {
+                VStack(spacing: 1) {
+                    ForEach(sorted, id: \.persistentModelID) { entry in
+                        if let card = entry.card {
+                            NavigationLink(value: card) {
+                                cardRow(card, quantity: entry.quantity)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+
+    // MARK: - Section Header
+
+    private func sectionHeader(_ title: String, count: Int, isCollapsed: Bool) -> some View {
+        HStack(spacing: 8) {
+            Rectangle()
+                .fill(MTGTheme.categoryColor(title))
+                .frame(width: 3, height: 16)
+                .clipShape(Capsule())
+
+            Text(title.uppercased())
+                .font(.caption)
+                .fontWeight(.heavy)
+                .tracking(1.5)
+                .foregroundStyle(MTGTheme.gold)
+
+            Text("\(count)")
+                .font(.caption2)
+                .fontWeight(.bold)
+                .foregroundStyle(MTGTheme.darkBg)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(MTGTheme.goldDim, in: Capsule())
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption2)
+                .foregroundStyle(MTGTheme.textSecondary)
+                .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                if isCollapsed {
+                    collapsedSections.remove(title)
+                } else {
+                    collapsedSections.insert(title)
                 }
             }
         }
     }
+
+    // MARK: - Card Row
 
     private func cardRow(_ card: Card, quantity: Int) -> some View {
         HStack(spacing: 10) {
-            cardThumbnail(card, size: CGSize(width: 40, height: 56))
-            VStack(alignment: .leading, spacing: 2) {
+            CardThumbnail(card: card, size: CGSize(width: 48, height: 67))
+
+            VStack(alignment: .leading, spacing: 3) {
                 Text(card.name)
-                    .font(.body)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundStyle(MTGTheme.textPrimary)
+                    .lineLimit(1)
+
                 if !card.manaCost.isEmpty {
-                    Text(card.manaCost)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    ManaCostView(manaCost: card.manaCost, size: 14)
                 }
             }
+
             Spacer()
+
             if quantity > 1 {
-                Text("\(quantity)x")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Text("\(quantity)×")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(MTGTheme.goldDim)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(MTGTheme.cardBg)
     }
 
-    private func cardThumbnail(_ card: Card, size: CGSize) -> some View {
-        CardThumbnail(card: card, size: size)
-    }
+    // MARK: - Helpers
 
-    // Priority: Creature > Instant > Sorcery > Artifact > Enchantment > Land
     private func primaryCategory(for typeLine: String) -> String {
         if typeLine.contains("Creature") { return "Creature" }
         if typeLine.contains("Planeswalker") { return "Planeswalker" }
@@ -204,6 +258,9 @@ struct DeckListView: View {
 }
 
 #Preview {
-    DeckListView()
-        .modelContainer(for: [Card.self, Deck.self, DeckEntry.self], inMemory: true)
+    NavigationStack {
+        DeckListView()
+    }
+    .modelContainer(for: [Card.self, Deck.self, DeckEntry.self], inMemory: true)
+    .preferredColorScheme(.dark)
 }
