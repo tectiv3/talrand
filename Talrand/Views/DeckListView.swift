@@ -56,6 +56,8 @@ struct DeckListView: View {
             }
         }
         .navigationTitle("Talrand")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(.dark, for: .navigationBar)
     }
 
     @ViewBuilder
@@ -83,38 +85,40 @@ struct DeckListView: View {
     private func commanderHeader(_ deck: Deck) -> some View {
         if let commander = deck.commander {
             NavigationLink(value: commander) {
-                ZStack(alignment: .bottomLeading) {
-                    CardThumbnail(card: commander, size: CGSize(width: UIScreen.main.bounds.width - 24, height: 160))
-                        .clipped()
-                        .overlay {
-                            LinearGradient(
-                                colors: [.clear, MTGTheme.darkBg.opacity(0.9)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        }
+                HStack(spacing: 12) {
+                    CardThumbnail(card: commander, size: CGSize(width: 48, height: 67))
 
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text("COMMANDER")
                             .font(.caption2)
                             .fontWeight(.heavy)
-                            .tracking(2)
+                            .tracking(1.5)
                             .foregroundStyle(MTGTheme.gold)
                         Text(commander.name)
-                            .font(.title2)
-                            .fontWeight(.bold)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
                             .foregroundStyle(MTGTheme.textPrimary)
+                            .lineLimit(1)
+                        if !commander.manaCost.isEmpty {
+                            ManaCostView(manaCost: commander.manaCost, size: 14)
+                        }
                     }
-                    .padding(16)
+
+                    Spacer()
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(MTGTheme.cardBorder, lineWidth: 1)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(MTGTheme.cardBg)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(MTGTheme.gold.opacity(0.3), lineWidth: 1)
+                        )
                 )
             }
             .buttonStyle(.plain)
-            .padding(.vertical, 8)
+            .padding(.vertical, 4)
         }
     }
 
