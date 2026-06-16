@@ -37,6 +37,7 @@ struct CameraPreviewView: UIViewRepresentable {
 struct CameraScannerView: View {
     let mode: ScannerMode
     var onCardMatched: ((Card) -> Void)?
+    var onNewCardScanned: ((String, String) -> Void)?
     var onBrowseDeck: (() -> Void)?
 
     @State private var cameraService = CameraService()
@@ -225,6 +226,15 @@ struct CameraScannerView: View {
                 }
 
                 onCardMatched?(card)
+                return
+            }
+        }
+
+        if mode == .swap {
+            for candidate in candidates {
+                guard let setCode = candidate.setCode else { continue }
+                lastMatchTime = .now
+                onNewCardScanned?(setCode, candidate.collectorNumber)
                 return
             }
         }

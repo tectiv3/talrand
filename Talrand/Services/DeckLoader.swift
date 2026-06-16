@@ -35,6 +35,7 @@ struct BundledDeck: Codable {
     let format: String
     let commander: BundledCard
     let cards: [BundledCardEntry]
+    let sideboard: [BundledCardEntry]
 }
 
 struct DeckLoader {

@@ -77,6 +77,18 @@ struct CardSwapView: View {
                 onCardMatched: { matchedCard in
                     guard let deck else { return }
                     swapService.handleScannedCard(matchedCard, replacing: oldCard, in: deck)
+                },
+                onNewCardScanned: { setCode, collectorNumber in
+                    guard let deck else { return }
+                    Task {
+                        await swapService.handleNewCardFromScan(
+                            setCode: setCode,
+                            collectorNumber: collectorNumber,
+                            replacing: oldCard,
+                            in: deck,
+                            modelContext: modelContext
+                        )
+                    }
                 }
             )
 

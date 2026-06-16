@@ -22,6 +22,8 @@ targets:
       properties:
         NSCameraUsageDescription: "Talrand uses the camera to scan collector numbers on your cards"
         UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.talrand.app

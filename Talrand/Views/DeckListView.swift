@@ -4,24 +4,27 @@ import SwiftData
 struct DeckListView: View {
     @Query private var decks: [Deck]
     @State private var searchText = ""
-    @State private var collapsedSections: Set<String> = []
+    @State private var collapsedSections: Set<String> = ["Sideboard"]
 
     private var deck: Deck? { decks.first }
 
-    private var filteredEntries: [DeckEntry] {
+    private var mainboardEntries: [DeckEntry] {
         guard let deck else { return [] }
-        if searchText.isEmpty {
-            return deck.cards
-        }
-        return deck.cards.filter { entry in
-            guard let card = entry.card else { return false }
-            return card.name.localizedCaseInsensitiveContains(searchText)
-        }
+        let entries = deck.cards.filter { $0.board == "mainboard" }
+        if searchText.isEmpty { return entries }
+        return entries.filter { $0.card?.name.localizedCaseInsensitiveContains(searchText) == true }
+    }
+
+    private var sideboardEntries: [DeckEntry] {
+        guard let deck else { return [] }
+        let entries = deck.cards.filter { $0.board == "sideboard" }
+        if searchText.isEmpty { return entries }
+        return entries.filter { $0.card?.name.localizedCaseInsensitiveContains(searchText) == true }
     }
 
     private var groupedEntries: [(category: String, entries: [DeckEntry])] {
         let categories = ["Creature", "Instant", "Sorcery", "Artifact", "Enchantment", "Land"]
-        let grouped = Dictionary(grouping: filteredEntries) { entry in
+        let grouped = Dictionary(grouping: mainboardEntries) { entry in
             primaryCategory(for: entry.card?.typeLine ?? "")
         }
         return categories.compactMap { category in
@@ -80,6 +83,7 @@ struct DeckListView: View {
                     }
                 }
             }
+            sideboardSection
         }
         .listStyle(.insetGrouped)
         .searchable(text: $searchText, prompt: "Search cards")
@@ -102,6 +106,44 @@ struct DeckListView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var sideboardSection: some View {
+        if !sideboardEntries.isEmpty {
+            let isCollapsed = collapsedSections.contains("Sideboard")
+            Section {
+                if !isCollapsed {
+                    ForEach(sideboardEntries.sorted { ($0.card?.name ?? "") < ($1.card?.name ?? "") }, id: \.persistentModelID) { entry in
+                        if let card = entry.card {
+                            NavigationLink(value: card) {
+                                cardRow(card, quantity: entry.quantity)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("Sideboard (\(sideboardEntries.count))")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation {
+                        if isCollapsed {
+                            collapsedSections.remove("Sideboard")
+                        } else {
+                            collapsedSections.insert("Sideboard")
+                        }
+                    }
                 }
             }
         }

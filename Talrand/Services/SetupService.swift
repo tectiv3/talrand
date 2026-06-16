@@ -150,6 +150,29 @@ class SetupService {
             deck.cards.append(entry)
         }
 
+        for bundledEntry in bundled.sideboard {
+            let card = Card(
+                scryfallId: bundledEntry.scryfallId,
+                oracleId: "",
+                name: bundledEntry.name,
+                setCode: bundledEntry.setCode,
+                collectorNumber: bundledEntry.collectorNumber,
+                oracleText: bundledEntry.oracleText ?? "",
+                manaCost: bundledEntry.manaCost ?? "",
+                typeLine: bundledEntry.typeLine,
+                power: bundledEntry.power,
+                toughness: bundledEntry.toughness,
+                rarity: bundledEntry.rarity,
+                layout: bundledEntry.layout,
+                frontImageUrl: ""
+            )
+            modelContext.insert(card)
+
+            let entry = DeckEntry(quantity: bundledEntry.quantity, board: "sideboard", card: card)
+            modelContext.insert(entry)
+            deck.cards.append(entry)
+        }
+
         try? modelContext.save()
         return deck
     }

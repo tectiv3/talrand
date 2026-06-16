@@ -898,5 +898,63 @@
       "toughness": null,
       "rarity": "common"
     }
+  ],
+  "sideboard": [
+    {
+      "quantity": 1,
+      "name": "Flow of Knowledge",
+      "scryfallId": "5ea316f3-4a68-4cd4-a388-da9d0455d0a9",
+      "setCode": "bro",
+      "collectorNumber": "49",
+      "layout": "normal",
+      "oracleText": "Draw a card for each Island you control, then discard two cards.",
+      "manaCost": "{4}{U}",
+      "typeLine": "Instant",
+      "power": null,
+      "toughness": null,
+      "rarity": "uncommon"
+    },
+    {
+      "quantity": 1,
+      "name": "Murmuring Mystic",
+      "scryfallId": "9f19337d-0824-442d-bb67-748a9980e816",
+      "setCode": "cmm",
+      "collectorNumber": "107",
+      "layout": "normal",
+      "oracleText": "Whenever you cast an instant or sorcery spell, create a 1/1 blue Bird Illusion creature token with flying.",
+      "manaCost": "{3}{U}",
+      "typeLine": "Creature — Human Wizard",
+      "power": "1",
+      "toughness": "5",
+      "rarity": "common"
+    },
+    {
+      "quantity": 1,
+      "name": "Thought Vessel",
+      "scryfallId": "84506a3f-46ee-4482-9f7d-0409c2699ae4",
+      "setCode": "who",
+      "collectorNumber": "255",
+      "layout": "normal",
+      "oracleText": "You have no maximum hand size.\n{T}: Add {C}.",
+      "manaCost": "{2}",
+      "typeLine": "Artifact",
+      "power": null,
+      "toughness": null,
+      "rarity": "uncommon"
+    },
+    {
+      "quantity": 1,
+      "name": "Hermes, Overseer of Elpis",
+      "scryfallId": "e04a05e5-7bff-46a4-aae1-6713977e6e30",
+      "setCode": "fic",
+      "collectorNumber": "36",
+      "layout": "normal",
+      "oracleText": "Whenever you cast a noncreature spell, create a 1/1 blue Bird creature token with flying and vigilance.\nWhenever you attack with one or more Birds, scry 2.",
+      "manaCost": "{3}{U}",
+      "typeLine": "Legendary Creature — Elder Wizard",
+      "power": "2",
+      "toughness": "4",
+      "rarity": "rare"
+    }
   ]
 }

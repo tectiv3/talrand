@@ -7,7 +7,6 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     var isRunning = false
     var permissionGranted = false
     var permissionDenied = false
-
     let captureSession = AVCaptureSession()
 
     private let processingQueue = DispatchQueue(label: "com.talrand.camera.processing")
@@ -38,7 +37,8 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         captureSession.beginConfiguration()
         captureSession.sessionPreset = .high
 
-        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+        let camera = preferredCamera()
+        guard let camera,
               let input = try? AVCaptureDeviceInput(device: camera),
               captureSession.canAddInput(input) else {
             captureSession.commitConfiguration()
@@ -74,6 +74,22 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 self?.isRunning = false
             }
         }
+    }
+
+    private func preferredCamera() -> AVCaptureDevice? {
+        // Virtual devices auto-switch to ultra-wide for macro when close to subject
+        let preferredTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInTripleCamera,
+            .builtInDualWideCamera,
+            .builtInDualCamera,
+            .builtInWideAngleCamera,
+        ]
+        for type in preferredTypes {
+            if let device = AVCaptureDevice.default(type, for: .video, position: .back) {
+                return device
+            }
+        }
+        return AVCaptureDevice.default(for: .video)
     }
 
     // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
