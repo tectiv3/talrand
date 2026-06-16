@@ -1,9 +1,14 @@
 import AVFoundation
 import Vision
 
+struct ScanResult: Equatable {
+    let ocrText: String
+    let candidates: [CollectorNumberCandidate]
+}
+
 @Observable
 class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
-    var recognizedCandidates: [CollectorNumberCandidate] = []
+    var lastScanResult: ScanResult?
     var isRunning = false
     var permissionGranted = false
     var permissionDenied = false
@@ -12,6 +17,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private let processingQueue = DispatchQueue(label: "com.talrand.camera.processing")
     private var lastProcessedTime: CFAbsoluteTime = 0
     private let minimumFrameInterval: CFAbsoluteTime = 0.2
+    private var cachedSetCodes: [String] = []
 
     func checkPermission() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -57,6 +63,10 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         captureSession.addOutput(output)
 
         captureSession.commitConfiguration()
+
+        Task {
+            cachedSetCodes = await ScryfallAPI.shared.fetchSetCodes()
+        }
 
         processingQueue.async { [weak self] in
             self?.captureSession.startRunning()
@@ -111,6 +121,9 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         request.recognitionLevel = .accurate
         // Vision uses bottom-left origin; this captures the bottom 25% of the frame
         request.regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: 0.25)
+        request.customWords = cachedSetCodes
+        request.usesLanguageCorrection = false
+        request.minimumTextHeight = 0.02
 
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
         try? handler.perform([request])
@@ -126,7 +139,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         let candidates = CollectorNumberParser.parse(ocrText: ocrText)
 
         Task { @MainActor in
-            self.recognizedCandidates = candidates
+            self.lastScanResult = ScanResult(ocrText: ocrText, candidates: candidates)
         }
     }
 }
