@@ -78,12 +78,13 @@ struct CardSwapView: View {
                     guard let deck else { return }
                     swapService.handleScannedCard(matchedCard, replacing: oldCard, in: deck)
                 },
-                onNewCardScanned: { setCode, collectorNumber in
+                onNewCardScanned: { setCode, collectorNumber, ocrText in
                     guard let deck else { return }
                     Task {
                         await swapService.handleNewCardFromScan(
                             setCode: setCode,
                             collectorNumber: collectorNumber,
+                            ocrText: ocrText,
                             replacing: oldCard,
                             in: deck,
                             modelContext: modelContext
@@ -251,9 +252,23 @@ struct CardSwapView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
 
+            if let ocrText = swapService.lastOCRText, !ocrText.isEmpty {
+                Text("OCR read: \u{00AB}\(ocrText)\u{00BB}")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+
             VStack(spacing: 12) {
                 Button("Try Again") { swapService.retry() }
                     .buttonStyle(.borderedProminent)
+
+                Button("Search by Name") {
+                    showingSearch = true
+                    swapService.retry()
+                }
+                .buttonStyle(.bordered)
 
                 Button("Cancel") { dismiss() }
                     .foregroundStyle(.secondary)

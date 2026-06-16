@@ -37,7 +37,7 @@ struct CameraPreviewView: UIViewRepresentable {
 struct CameraScannerView: View {
     let mode: ScannerMode
     var onCardMatched: ((Card) -> Void)?
-    var onNewCardScanned: ((String, String) -> Void)?
+    var onNewCardScanned: ((String, String, String) -> Void)?
     var onBrowseDeck: (() -> Void)?
 
     @State private var cameraService = CameraService()
@@ -69,8 +69,9 @@ struct CameraScannerView: View {
                 cameraService.startSession()
             }
         }
-        .onChange(of: cameraService.recognizedCandidates) { _, candidates in
-            processCandidates(candidates)
+        .onChange(of: cameraService.lastScanResult) { _, result in
+            guard let result else { return }
+            processCandidates(result)
         }
         .onDisappear {
             cameraService.stopSession()
@@ -211,7 +212,8 @@ struct CameraScannerView: View {
 
     // MARK: - Matching
 
-    private func processCandidates(_ candidates: [CollectorNumberCandidate]) {
+    private func processCandidates(_ result: ScanResult) {
+        let candidates = result.candidates
         guard !candidates.isEmpty else { return }
         guard Date.now.timeIntervalSince(lastMatchTime) >= matchCooldown else { return }
 
@@ -234,7 +236,7 @@ struct CameraScannerView: View {
             for candidate in candidates {
                 guard let setCode = candidate.setCode else { continue }
                 lastMatchTime = .now
-                onNewCardScanned?(setCode, candidate.collectorNumber)
+                onNewCardScanned?(setCode, candidate.collectorNumber, result.ocrText)
                 return
             }
         }

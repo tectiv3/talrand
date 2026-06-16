@@ -7,6 +7,7 @@ class CardSwapService {
     var state: SwapState = .scanning
     var newCard: Card? = nil
     var errorMessage: String? = nil
+    var lastOCRText: String? = nil
 
     enum SwapState {
         case scanning
@@ -95,10 +96,12 @@ class CardSwapService {
     func handleNewCardFromScan(
         setCode: String,
         collectorNumber: String,
+        ocrText: String,
         replacing oldCard: Card,
         in deck: Deck,
         modelContext: ModelContext
     ) async {
+        lastOCRText = ocrText
         state = .fetching
 
         do {
@@ -141,7 +144,11 @@ class CardSwapService {
             state = .confirming
 
         } catch {
-            errorMessage = error.localizedDescription
+            if let scryfallError = error as? ScryfallError, case .notFound = scryfallError {
+                errorMessage = "Card not found: \(setCode.uppercased()) #\(collectorNumber)\n\(error.localizedDescription)"
+            } else {
+                errorMessage = error.localizedDescription
+            }
             state = .error
         }
     }
@@ -259,6 +266,7 @@ class CardSwapService {
 
     func retry() {
         errorMessage = nil
+        lastOCRText = nil
         state = .scanning
     }
 
