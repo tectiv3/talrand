@@ -7,11 +7,14 @@ struct CollectorNumberCandidate: Hashable {
 
 struct CollectorNumberParser {
 
-    static func parse(ocrText: String) -> [CollectorNumberCandidate] {
+    static func parse(ocrText: String, knownSetCodes: Set<String> = []) -> [CollectorNumberCandidate] {
         var seen = Set<CollectorNumberCandidate>()
         var results: [CollectorNumberCandidate] = []
 
         func add(_ candidate: CollectorNumberCandidate) {
+            if let set = candidate.setCode, !knownSetCodes.isEmpty, !knownSetCodes.contains(set.uppercased()) {
+                return
+            }
             guard seen.insert(candidate).inserted else { return }
             results.append(candidate)
         }
@@ -52,6 +55,27 @@ struct CollectorNumberParser {
                 let number = String(ocrText[numRange])
                 let compound = "\(setCode)-\(number)"
                 add(CollectorNumberCandidate(setCode: nil, collectorNumber: compound))
+            }
+        }
+
+        // Pattern 4: Split-line layout (modern cards)
+        // Rarity + number on one line, set code on another: "R 0057 ... SOS • EN"
+        let rarityNumberPattern = try? NSRegularExpression(pattern: #"[RCUMSPBT]\s+0*(\d{1,4})\b"#)
+        let setCodePattern = try? NSRegularExpression(pattern: #"([A-Z]{2,5})\s*[·•]\s*[A-Z]{2}\b"#)
+
+        if let rnRegex = rarityNumberPattern, let scRegex = setCodePattern {
+            let rnMatches = rnRegex.matches(in: ocrText, range: NSRange(ocrText.startIndex..., in: ocrText))
+            let scMatches = scRegex.matches(in: ocrText, range: NSRange(ocrText.startIndex..., in: ocrText))
+
+            for scMatch in scMatches {
+                guard let setRange = Range(scMatch.range(at: 1), in: ocrText) else { continue }
+                let setCode = String(ocrText[setRange]).lowercased()
+
+                for rnMatch in rnMatches {
+                    guard let numRange = Range(rnMatch.range(at: 1), in: ocrText) else { continue }
+                    let number = String(ocrText[numRange])
+                    add(CollectorNumberCandidate(setCode: setCode, collectorNumber: number))
+                }
             }
         }
 

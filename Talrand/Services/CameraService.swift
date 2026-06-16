@@ -18,6 +18,10 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var lastProcessedTime: CFAbsoluteTime = 0
     private let minimumFrameInterval: CFAbsoluteTime = 0.2
     private var cachedSetCodes: [String] = []
+    private var knownSetCodesSet: Set<String> = []
+    private var lastCandidate: CollectorNumberCandidate?
+    private var consecutiveMatchCount = 0
+    private let requiredConsecutiveMatches = 2
 
     func checkPermission() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -66,6 +70,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
 
         Task {
             cachedSetCodes = await ScryfallAPI.shared.fetchSetCodes()
+            knownSetCodesSet = Set(cachedSetCodes)
         }
 
         processingQueue.async { [weak self] in
@@ -132,11 +137,28 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private func handleRecognitionResults(_ observations: [VNRecognizedTextObservation]?) {
         guard let observations else { return }
 
-        let ocrText = observations
+        let confident = observations.filter { $0.confidence >= 0.5 }
+        guard !confident.isEmpty else { return }
+
+        let ocrText = confident
             .compactMap { $0.topCandidates(1).first?.string }
             .joined(separator: " ")
 
-        let candidates = CollectorNumberParser.parse(ocrText: ocrText)
+        let candidates = CollectorNumberParser.parse(ocrText: ocrText, knownSetCodes: knownSetCodesSet)
+        guard let topCandidate = candidates.first else {
+            lastCandidate = nil
+            consecutiveMatchCount = 0
+            return
+        }
+
+        if topCandidate == lastCandidate {
+            consecutiveMatchCount += 1
+        } else {
+            lastCandidate = topCandidate
+            consecutiveMatchCount = 1
+        }
+
+        guard consecutiveMatchCount >= requiredConsecutiveMatches else { return }
 
         Task { @MainActor in
             self.lastScanResult = ScanResult(ocrText: ocrText, candidates: candidates)
