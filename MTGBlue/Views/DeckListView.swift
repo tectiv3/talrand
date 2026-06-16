@@ -3,7 +3,6 @@ import SwiftData
 
 struct DeckListView: View {
     @Query private var decks: [Deck]
-    @Environment(\.modelContext) private var modelContext
     @State private var searchText = ""
     @State private var collapsedSections: Set<String> = []
 
@@ -84,25 +83,6 @@ struct DeckListView: View {
         }
         .listStyle(.insetGrouped)
         .searchable(text: $searchText, prompt: "Search cards")
-        .refreshable {
-            let brokenCards = collectBrokenCards(from: deck)
-            guard !brokenCards.isEmpty else { return }
-            let service = SetupService()
-            await service.refetchCards(brokenCards, modelContext: modelContext)
-        }
-    }
-
-    private func collectBrokenCards(from deck: Deck) -> [Card] {
-        var cards: [Card] = []
-        if let commander = deck.commander, commander.resolvedFrontImagePath == nil {
-            cards.append(commander)
-        }
-        for entry in deck.cards {
-            if let card = entry.card, card.resolvedFrontImagePath == nil {
-                cards.append(card)
-            }
-        }
-        return cards
     }
 
     @ViewBuilder

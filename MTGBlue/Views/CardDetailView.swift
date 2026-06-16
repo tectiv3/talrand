@@ -5,24 +5,46 @@ struct CardDetailView: View {
     let card: Card
     var onReplace: (() -> Void)?
 
+    @Environment(\.modelContext) private var modelContext
     @State private var showingBack = false
+    @State private var isRefreshing = false
 
     private var isDFC: Bool {
         card.layout == "transform" || card.layout == "modal_dfc"
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+        List {
+            Section {
                 cardImage
                 cardInfo
-                rulingsSection
-                replaceButton
             }
-            .padding()
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+
+            if !uniqueRulings.isEmpty || !card.rulings.isEmpty {
+                Section {
+                    rulingsSection
+                }
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            }
+
+            if onReplace != nil {
+                Section {
+                    replaceButton
+                }
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            }
         }
+        .listStyle(.plain)
         .navigationTitle(card.name)
         .navigationBarTitleDisplayMode(.inline)
+        .refreshable {
+            isRefreshing = true
+            let service = SetupService()
+            await service.refetchCards([card], modelContext: modelContext)
+            isRefreshing = false
+        }
     }
 
     // MARK: - Card Image
