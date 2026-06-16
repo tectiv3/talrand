@@ -129,6 +129,8 @@ struct CardDetailView: View {
 
             if !card.oracleText.isEmpty {
                 oracleTextView
+                ManaSymbolLegend(text: card.manaCost + " " + card.oracleText)
+                    .padding(.top, 4)
             }
         }
     }
