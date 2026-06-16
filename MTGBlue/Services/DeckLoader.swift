@@ -6,8 +6,8 @@ struct BundledCard: Codable {
     let setCode: String
     let collectorNumber: String
     let layout: String
-    let oracleText: String
-    let manaCost: String
+    let oracleText: String?
+    let manaCost: String?
     let typeLine: String
     let power: String?
     let toughness: String?
@@ -21,8 +21,8 @@ struct BundledCardEntry: Codable {
     let setCode: String
     let collectorNumber: String
     let layout: String
-    let oracleText: String
-    let manaCost: String
+    let oracleText: String?
+    let manaCost: String?
     let typeLine: String
     let power: String?
     let toughness: String?
