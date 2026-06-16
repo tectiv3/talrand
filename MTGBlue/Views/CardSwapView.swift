@@ -75,7 +75,8 @@ struct CardSwapView: View {
             CameraScannerView(
                 mode: .swap,
                 onCardMatched: { matchedCard in
-                    swapService.handleScannedCard(matchedCard, replacing: oldCard)
+                    guard let deck else { return }
+                    swapService.handleScannedCard(matchedCard, replacing: oldCard, in: deck)
                 }
             )
 
@@ -213,7 +214,7 @@ struct CardSwapView: View {
                 .foregroundStyle(tint)
                 .textCase(.uppercase)
 
-            if let path = card.localFrontImagePath,
+            if let path = card.resolvedFrontImagePath,
                let uiImage = UIImage(contentsOfFile: path) {
                 Image(uiImage: uiImage)
                     .resizable()
@@ -289,10 +290,12 @@ struct CardSwapView: View {
     }
 
     private func selectSearchResult(_ result: ScryfallCard) {
+        guard let deck else { return }
         Task {
             await swapService.handleSearchResult(
                 result,
                 replacing: oldCard,
+                in: deck,
                 modelContext: modelContext
             )
         }

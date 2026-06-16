@@ -13,6 +13,7 @@ class Card: Hashable {
     var typeLine: String
     var power: String?
     var toughness: String?
+    var colorIdentity: String
     var rarity: String
     var layout: String
     var frontImageUrl: String
@@ -32,6 +33,7 @@ class Card: Hashable {
         oracleText: String,
         manaCost: String,
         typeLine: String,
+        colorIdentity: String = "",
         power: String? = nil,
         toughness: String? = nil,
         rarity: String,
@@ -52,6 +54,7 @@ class Card: Hashable {
         self.typeLine = typeLine
         self.power = power
         self.toughness = toughness
+        self.colorIdentity = colorIdentity
         self.rarity = rarity
         self.layout = layout
         self.frontImageUrl = frontImageUrl
@@ -59,6 +62,10 @@ class Card: Hashable {
         self.localFrontImagePath = localFrontImagePath
         self.localBackImagePath = localBackImagePath
         self.rulings = rulings
+    }
+
+    var isBasicLand: Bool {
+        typeLine.contains("Basic Land")
     }
 
     private static let imageCache = ImageCacheService()

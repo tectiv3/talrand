@@ -28,6 +28,7 @@ struct ScryfallCard: Codable {
     let oracleText: String?
     let manaCost: String?
     let typeLine: String?
+    let colorIdentity: [String]?
     let power: String?
     let toughness: String?
     let rarity: String
@@ -44,6 +45,7 @@ struct ScryfallCard: Codable {
         case oracleText = "oracle_text"
         case manaCost = "mana_cost"
         case typeLine = "type_line"
+        case colorIdentity = "color_identity"
         case power
         case toughness
         case rarity

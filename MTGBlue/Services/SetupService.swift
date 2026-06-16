@@ -189,6 +189,7 @@ class SetupService {
                 card.typeLine = scryfallCard.typeLine ?? card.typeLine
                 card.power = scryfallCard.power
                 card.toughness = scryfallCard.toughness
+                card.colorIdentity = (scryfallCard.colorIdentity ?? []).joined(separator: ",")
                 card.rarity = scryfallCard.rarity
                 card.layout = scryfallCard.layout
 

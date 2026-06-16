@@ -18,11 +18,69 @@ class CardSwapService {
 
     private let imageCache = ImageCacheService()
 
+    // MARK: - Validation
+
+    private func validate(_ card: Card, replacing oldCard: Card, in deck: Deck) -> String? {
+        if card.scryfallId == oldCard.scryfallId {
+            return "That's the same card"
+        }
+
+        if !card.isBasicLand {
+            let isDuplicate = deck.cards.contains { entry in
+                guard let existing = entry.card, existing.scryfallId != oldCard.scryfallId else { return false }
+                return existing.oracleId == card.oracleId && !card.oracleId.isEmpty
+            }
+            let commanderDuplicate = deck.commander.map {
+                $0.oracleId == card.oracleId && !card.oracleId.isEmpty
+            } ?? false
+
+            if isDuplicate || commanderDuplicate {
+                return "\(card.name) is already in the deck (singleton rule)"
+            }
+        }
+
+        let commanderColors = Set(deck.commander?.colorIdentity.split(separator: ",").map(String.init) ?? [])
+        let cardColors = Set(card.colorIdentity.split(separator: ",").map(String.init))
+        if !cardColors.isSubset(of: commanderColors) && !cardColors.isEmpty {
+            let allowed = commanderColors.isEmpty ? "colorless" : commanderColors.sorted().joined(separator: ", ")
+            return "\(card.name) has wrong color identity (deck allows: \(allowed))"
+        }
+
+        return nil
+    }
+
+    private func validateScryfall(_ card: ScryfallCard, replacing oldCard: Card, in deck: Deck) -> String? {
+        if let oracleId = card.oracleId, !oracleId.isEmpty {
+            let isBasic = card.typeLine?.contains("Basic Land") == true
+
+            if !isBasic {
+                let isDuplicate = deck.cards.contains { entry in
+                    guard let existing = entry.card, existing.scryfallId != oldCard.scryfallId else { return false }
+                    return existing.oracleId == oracleId
+                }
+                let commanderDuplicate = deck.commander?.oracleId == oracleId
+
+                if isDuplicate || commanderDuplicate {
+                    return "\(card.name) is already in the deck (singleton rule)"
+                }
+            }
+        }
+
+        let commanderColors = Set(deck.commander?.colorIdentity.split(separator: ",").map(String.init) ?? [])
+        let cardColors = Set(card.colorIdentity ?? [])
+        if !cardColors.isSubset(of: commanderColors) && !cardColors.isEmpty {
+            let allowed = commanderColors.isEmpty ? "colorless" : commanderColors.sorted().joined(separator: ", ")
+            return "\(card.name) has wrong color identity (deck allows: \(allowed))"
+        }
+
+        return nil
+    }
+
     // MARK: - Handle a card already in the local DB (matched by scanner)
 
-    func handleScannedCard(_ card: Card, replacing oldCard: Card) {
-        if card.scryfallId == oldCard.scryfallId {
-            errorMessage = "That's the same card"
+    func handleScannedCard(_ card: Card, replacing oldCard: Card, in deck: Deck) {
+        if let error = validate(card, replacing: oldCard, in: deck) {
+            errorMessage = error
             state = .error
             return
         }
@@ -38,6 +96,7 @@ class CardSwapService {
         setCode: String,
         collectorNumber: String,
         replacing oldCard: Card,
+        in deck: Deck,
         modelContext: ModelContext
     ) async {
         state = .fetching
@@ -47,6 +106,12 @@ class CardSwapService {
                 setCode: setCode,
                 collectorNumber: collectorNumber
             )
+
+            if let error = validateScryfall(scryfallCard, replacing: oldCard, in: deck) {
+                errorMessage = error
+                state = .error
+                return
+            }
 
             let card = createCard(from: scryfallCard)
             modelContext.insert(card)
@@ -87,10 +152,11 @@ class CardSwapService {
     func handleSearchResult(
         _ scryfallCard: ScryfallCard,
         replacing oldCard: Card,
+        in deck: Deck,
         modelContext: ModelContext
     ) async {
-        if let oracleId = scryfallCard.oracleId, oracleId == oldCard.oracleId {
-            errorMessage = "That's the same card"
+        if let error = validateScryfall(scryfallCard, replacing: oldCard, in: deck) {
+            errorMessage = error
             state = .error
             return
         }
@@ -217,6 +283,7 @@ class CardSwapService {
             oracleText: scryfall.oracleText ?? "",
             manaCost: scryfall.manaCost ?? "",
             typeLine: scryfall.typeLine ?? "",
+            colorIdentity: (scryfall.colorIdentity ?? []).joined(separator: ","),
             power: scryfall.power,
             toughness: scryfall.toughness,
             rarity: scryfall.rarity,
