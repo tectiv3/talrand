@@ -61,6 +61,18 @@ class Card: Hashable {
         self.rulings = rulings
     }
 
+    private static let imageCache = ImageCacheService()
+
+    var resolvedFrontImagePath: String? {
+        guard let path = localFrontImagePath, !path.isEmpty else { return nil }
+        return Self.imageCache.resolvedPath(path)
+    }
+
+    var resolvedBackImagePath: String? {
+        guard let path = localBackImagePath, !path.isEmpty else { return nil }
+        return Self.imageCache.resolvedPath(path)
+    }
+
     static func == (lhs: Card, rhs: Card) -> Bool {
         lhs.scryfallId == rhs.scryfallId
     }

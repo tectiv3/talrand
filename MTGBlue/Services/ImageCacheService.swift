@@ -26,12 +26,18 @@ struct ImageCacheService {
 
         let destination = cacheDirectory().appendingPathComponent(filename)
         try data.write(to: destination)
-        return destination.path
+        return filename
     }
 
     func cachedImagePath(filename: String) -> String? {
         let path = cacheDirectory().appendingPathComponent(filename).path
         return fileManager.fileExists(atPath: path) ? path : nil
+    }
+
+    func resolvedPath(_ storedPath: String) -> String? {
+        let filename = (storedPath as NSString).lastPathComponent
+        let resolved = cacheDirectory().appendingPathComponent(filename).path
+        return fileManager.fileExists(atPath: resolved) ? resolved : nil
     }
 
     func deleteImage(filename: String) {

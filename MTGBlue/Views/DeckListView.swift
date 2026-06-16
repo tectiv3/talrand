@@ -84,24 +84,25 @@ struct DeckListView: View {
         }
         .listStyle(.insetGrouped)
         .searchable(text: $searchText, prompt: "Search cards")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                if hasBrokenCards(deck) {
-                    Button {
-                        deck.setupComplete = false
-                        try? modelContext.save()
-                    } label: {
-                        Label("Re-fetch broken cards", systemImage: "arrow.trianglehead.2.clockwise")
-                    }
-                }
-            }
+        .refreshable {
+            let brokenCards = collectBrokenCards(from: deck)
+            guard !brokenCards.isEmpty else { return }
+            let service = SetupService()
+            await service.refetchCards(brokenCards, modelContext: modelContext)
         }
     }
 
-    private func hasBrokenCards(_ deck: Deck) -> Bool {
-        let commanderBroken = deck.commander?.frontImageUrl.isEmpty == true
-        let cardsBroken = deck.cards.contains { $0.card?.frontImageUrl.isEmpty == true }
-        return commanderBroken || cardsBroken
+    private func collectBrokenCards(from deck: Deck) -> [Card] {
+        var cards: [Card] = []
+        if let commander = deck.commander, commander.resolvedFrontImagePath == nil {
+            cards.append(commander)
+        }
+        for entry in deck.cards {
+            if let card = entry.card, card.resolvedFrontImagePath == nil {
+                cards.append(card)
+            }
+        }
+        return cards
     }
 
     @ViewBuilder
@@ -150,7 +151,7 @@ struct DeckListView: View {
 
     private func cardThumbnail(_ card: Card, size: CGSize) -> some View {
         Group {
-            if let path = card.localFrontImagePath,
+            if let path = card.resolvedFrontImagePath,
                let uiImage = UIImage(contentsOfFile: path) {
                 Image(uiImage: uiImage)
                     .resizable()

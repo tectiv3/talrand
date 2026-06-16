@@ -150,14 +150,11 @@ class CardSwapService {
             modelContext.delete(oldEntry)
         }
 
-        // Clean up old card's cached images
-        if let frontPath = oldCard.localFrontImagePath {
-            let frontFilename = (frontPath as NSString).lastPathComponent
-            imageCache.deleteImage(filename: frontFilename)
+        if let frontPath = oldCard.localFrontImagePath, !frontPath.isEmpty {
+            imageCache.deleteImage(filename: (frontPath as NSString).lastPathComponent)
         }
-        if let backPath = oldCard.localBackImagePath {
-            let backFilename = (backPath as NSString).lastPathComponent
-            imageCache.deleteImage(filename: backFilename)
+        if let backPath = oldCard.localBackImagePath, !backPath.isEmpty {
+            imageCache.deleteImage(filename: (backPath as NSString).lastPathComponent)
         }
 
         // Remove old card's CollectorNumberEntry records only if no other card shares the oracle ID

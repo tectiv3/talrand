@@ -91,6 +91,16 @@ class SetupService {
     }
 
     @MainActor
+    func refetchCards(_ cards: [Card], modelContext: ModelContext) async {
+        for card in cards {
+            card.frontImageUrl = ""
+            card.localFrontImagePath = nil
+            card.localBackImagePath = nil
+            await fetchCardData(card: card, modelContext: modelContext)
+        }
+    }
+
+    @MainActor
     private func createDeckShell(from bundled: BundledDeck, modelContext: ModelContext) -> Deck {
         let commanderCard = Card(
             scryfallId: bundled.commander.scryfallId,

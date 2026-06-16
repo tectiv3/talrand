@@ -62,7 +62,7 @@ struct CardDetailView: View {
     }
 
     private func loadCurrentImage() -> UIImage? {
-        let path = showingBack ? card.localBackImagePath : card.localFrontImagePath
+        let path = showingBack ? card.resolvedBackImagePath : card.resolvedFrontImagePath
         guard let path else { return nil }
         return UIImage(contentsOfFile: path)
     }
