@@ -23,7 +23,7 @@ struct DeckListView: View {
     }
 
     private var groupedEntries: [(category: String, entries: [DeckEntry])] {
-        let categories = ["Creature", "Instant", "Sorcery", "Artifact", "Enchantment", "Land"]
+        let categories = ["Creature", "Planeswalker", "Instant", "Sorcery", "Artifact", "Enchantment", "Battle", "Land", "Other"]
         let grouped = Dictionary(grouping: mainboardEntries) { entry in
             primaryCategory(for: entry.card?.typeLine ?? "")
         }
@@ -127,7 +127,7 @@ struct DeckListView: View {
                 }
             } header: {
                 HStack {
-                    Text("Sideboard (\(sideboardEntries.count))")
+                    Text("Sideboard (\(sideboardEntries.reduce(0) { $0 + $1.quantity }))")
                     Spacer()
                     Image(systemName: "chevron.right")
                         .font(.caption2)
@@ -172,32 +172,18 @@ struct DeckListView: View {
     }
 
     private func cardThumbnail(_ card: Card, size: CGSize) -> some View {
-        Group {
-            if let path = card.resolvedFrontImagePath,
-               let uiImage = UIImage(contentsOfFile: path) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                Rectangle()
-                    .fill(.blue.opacity(0.3))
-                    .overlay {
-                        Image(systemName: "rectangle.portrait")
-                            .foregroundStyle(.blue)
-                    }
-            }
-        }
-        .frame(width: size.width, height: size.height)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        CardThumbnail(card: card, size: size)
     }
 
     // Priority: Creature > Instant > Sorcery > Artifact > Enchantment > Land
     private func primaryCategory(for typeLine: String) -> String {
         if typeLine.contains("Creature") { return "Creature" }
+        if typeLine.contains("Planeswalker") { return "Planeswalker" }
         if typeLine.contains("Instant") { return "Instant" }
         if typeLine.contains("Sorcery") { return "Sorcery" }
         if typeLine.contains("Artifact") { return "Artifact" }
         if typeLine.contains("Enchantment") { return "Enchantment" }
+        if typeLine.contains("Battle") { return "Battle" }
         if typeLine.contains("Land") { return "Land" }
         return "Other"
     }

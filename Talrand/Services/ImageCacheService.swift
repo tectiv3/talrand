@@ -3,13 +3,17 @@ import Foundation
 struct ImageCacheService {
     private let fileManager = FileManager.default
 
-    private func cacheDirectory() -> URL {
-        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+    private static let cachedDirectory: URL = {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let dir = caches.appendingPathComponent("CardImages")
-        if !fileManager.fileExists(atPath: dir.path) {
-            try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         return dir
+    }()
+
+    private func cacheDirectory() -> URL {
+        Self.cachedDirectory
     }
 
     func cacheImage(from url: String, filename: String) async throws -> String {

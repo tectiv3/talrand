@@ -7,7 +7,7 @@ struct CardDetailView: View {
 
     @Environment(\.modelContext) private var modelContext
     @State private var showingBack = false
-    @State private var isRefreshing = false
+    @State private var cardImage: UIImage?
 
     private var isDFC: Bool {
         card.layout == "transform" || card.layout == "modal_dfc"
@@ -16,7 +16,7 @@ struct CardDetailView: View {
     var body: some View {
         List {
             Section {
-                cardImage
+                cardImageView
                 cardInfo
             }
             .listRowSeparator(.hidden)
@@ -41,28 +41,27 @@ struct CardDetailView: View {
         .navigationTitle(card.name)
         .navigationBarTitleDisplayMode(.inline)
         .refreshable {
-            isRefreshing = true
             let service = SetupService()
             await service.refetchCards([card], modelContext: modelContext)
-            isRefreshing = false
+            cardImage = await loadCurrentImage()
         }
     }
 
     // MARK: - Card Image
 
     @ViewBuilder
-    private var cardImage: some View {
+    private var cardImageView: some View {
         VStack(spacing: 6) {
             Group {
-                if let image = loadCurrentImage() {
-                    Image(uiImage: image)
+                if let cardImage {
+                    Image(uiImage: cardImage)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                 } else {
                     imagePlaceholder
                 }
             }
-            .frame(maxWidth: UIScreen.main.bounds.width * 0.7)
+            .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .rotation3DEffect(
                 .degrees(showingBack ? 180 : 0),
@@ -75,6 +74,9 @@ struct CardDetailView: View {
                 }
             }
             .frame(maxWidth: .infinity)
+            .task(id: showingBack) {
+                cardImage = await loadCurrentImage()
+            }
 
             if isDFC {
                 Text("Tap to flip")
@@ -84,10 +86,14 @@ struct CardDetailView: View {
         }
     }
 
-    private func loadCurrentImage() -> UIImage? {
-        let path = showingBack ? card.resolvedBackImagePath : card.resolvedFrontImagePath
-        guard let path else { return nil }
-        return UIImage(contentsOfFile: path)
+    private func loadCurrentImage() async -> UIImage? {
+        let storedPath = showingBack ? card.localBackImagePath : card.localFrontImagePath
+        guard let storedPath, !storedPath.isEmpty else { return nil }
+        return await Task.detached {
+            let cache = ImageCacheService()
+            guard let resolved = cache.resolvedPath(storedPath) else { return nil as UIImage? }
+            return UIImage(contentsOfFile: resolved)
+        }.value
     }
 
     private var imagePlaceholder: some View {
@@ -137,7 +143,7 @@ struct CardDetailView: View {
 
     private var oracleTextView: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(card.oracleText.components(separatedBy: "\n"), id: \.self) { paragraph in
+            ForEach(Array(card.oracleText.components(separatedBy: "\n").enumerated()), id: \.offset) { _, paragraph in
                 if !paragraph.isEmpty {
                     Text(paragraph)
                         .font(.body)

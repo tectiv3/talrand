@@ -226,24 +226,7 @@ struct CardSwapView: View {
                 .foregroundStyle(tint)
                 .textCase(.uppercase)
 
-            if let path = card.resolvedFrontImagePath,
-               let uiImage = UIImage(contentsOfFile: path) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 120)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(tint.opacity(0.15))
-                    .frame(width: 120, height: 168)
-                    .overlay {
-                        Text(card.name)
-                            .font(.caption)
-                            .multilineTextAlignment(.center)
-                            .padding(4)
-                    }
-            }
+            CardThumbnail(card: card, size: CGSize(width: 120, height: 168))
 
             Text(card.name)
                 .font(.caption)
