@@ -1,0 +1,145 @@
+import SwiftUI
+import SwiftData
+
+struct DeckListView: View {
+    @Query private var decks: [Deck]
+    @State private var searchText = ""
+
+    private var deck: Deck? { decks.first }
+
+    private var filteredEntries: [DeckEntry] {
+        guard let deck else { return [] }
+        if searchText.isEmpty {
+            return deck.cards
+        }
+        return deck.cards.filter { entry in
+            guard let card = entry.card else { return false }
+            return card.name.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    private var groupedEntries: [(category: String, entries: [DeckEntry])] {
+        let categories = ["Creature", "Instant", "Sorcery", "Artifact", "Enchantment", "Land"]
+        let grouped = Dictionary(grouping: filteredEntries) { entry in
+            primaryCategory(for: entry.card?.typeLine ?? "")
+        }
+        return categories.compactMap { category in
+            guard let entries = grouped[category], !entries.isEmpty else { return nil }
+            return (category: category, entries: entries.sorted { ($0.card?.name ?? "") < ($1.card?.name ?? "") })
+        }
+    }
+
+    var body: some View {
+        Group {
+            if let deck {
+                deckContent(deck)
+            } else {
+                ContentUnavailableView("No deck loaded", systemImage: "rectangle.stack")
+            }
+        }
+        .navigationTitle("MTG Blue")
+    }
+
+    @ViewBuilder
+    private func deckContent(_ deck: Deck) -> some View {
+        List {
+            commanderSection(deck)
+            ForEach(groupedEntries, id: \.category) { group in
+                Section {
+                    ForEach(group.entries, id: \.persistentModelID) { entry in
+                        if let card = entry.card {
+                            NavigationLink(value: card) {
+                                cardRow(card, quantity: entry.quantity)
+                            }
+                        }
+                    }
+                } header: {
+                    let count = group.entries.reduce(0) { $0 + $1.quantity }
+                    Text("\(group.category) (\(count))")
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .searchable(text: $searchText, prompt: "Search cards")
+    }
+
+    @ViewBuilder
+    private func commanderSection(_ deck: Deck) -> some View {
+        if let commander = deck.commander {
+            Section {
+                NavigationLink(value: commander) {
+                    HStack(spacing: 12) {
+                        cardThumbnail(commander, size: CGSize(width: 80, height: 112))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Commander")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textCase(.uppercase)
+                            Text(commander.name)
+                                .font(.headline)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+
+    private func cardRow(_ card: Card, quantity: Int) -> some View {
+        HStack(spacing: 10) {
+            cardThumbnail(card, size: CGSize(width: 40, height: 56))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(card.name)
+                    .font(.body)
+                if !card.manaCost.isEmpty {
+                    Text(card.manaCost)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if quantity > 1 {
+                Text("\(quantity)x")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func cardThumbnail(_ card: Card, size: CGSize) -> some View {
+        Group {
+            if let path = card.localFrontImagePath,
+               let uiImage = UIImage(contentsOfFile: path) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Rectangle()
+                    .fill(.blue.opacity(0.3))
+                    .overlay {
+                        Image(systemName: "rectangle.portrait")
+                            .foregroundStyle(.blue)
+                    }
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    // Priority: Creature > Instant > Sorcery > Artifact > Enchantment > Land
+    private func primaryCategory(for typeLine: String) -> String {
+        if typeLine.contains("Creature") { return "Creature" }
+        if typeLine.contains("Instant") { return "Instant" }
+        if typeLine.contains("Sorcery") { return "Sorcery" }
+        if typeLine.contains("Artifact") { return "Artifact" }
+        if typeLine.contains("Enchantment") { return "Enchantment" }
+        if typeLine.contains("Land") { return "Land" }
+        return "Other"
+    }
+}
+
+#Preview {
+    DeckListView()
+        .modelContainer(for: [Card.self, Deck.self, DeckEntry.self], inMemory: true)
+}
