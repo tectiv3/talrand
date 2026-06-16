@@ -37,6 +37,7 @@ struct CardDetailView: View {
             }
         }
         .listStyle(.plain)
+        .textSelection(.enabled)
         .navigationTitle(card.name)
         .navigationBarTitleDisplayMode(.inline)
         .refreshable {
