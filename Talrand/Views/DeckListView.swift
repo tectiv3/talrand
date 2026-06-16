@@ -1,10 +1,24 @@
 import SwiftUI
 import SwiftData
 
+struct CollapsedSections: RawRepresentable {
+    var sections: Set<String>
+
+    init(_ sections: Set<String> = []) { self.sections = sections }
+    init?(rawValue: String) {
+        sections = rawValue.isEmpty ? [] : Set(rawValue.components(separatedBy: ","))
+    }
+    var rawValue: String { sections.sorted().joined(separator: ",") }
+
+    func contains(_ s: String) -> Bool { sections.contains(s) }
+    mutating func insert(_ s: String) { sections.insert(s) }
+    mutating func remove(_ s: String) { sections.remove(s) }
+}
+
 struct DeckListView: View {
     @Query private var decks: [Deck]
     @State private var searchText = ""
-    @State private var collapsedSections: Set<String> = ["Sideboard"]
+    @AppStorage("collapsedSections") private var collapsedSections = CollapsedSections(["Sideboard"])
 
     private var deck: Deck? { decks.first }
 

@@ -67,6 +67,14 @@ class SetupService {
         let existingDeck = try? modelContext.fetch(FetchDescriptor<Deck>()).first
 
         if let deck = existingDeck, deck.setupComplete {
+            let addedSideboard = backfillSideboard(deck: deck, bundled: bundled, modelContext: modelContext)
+            if addedSideboard {
+                let sideboardCards = deck.cards.filter { $0.board == "sideboard" }.compactMap(\.card)
+                totalCards = sideboardCards.count
+                for card in sideboardCards where card.frontImageUrl.isEmpty {
+                    await fetchCardData(card: card, modelContext: modelContext)
+                }
+            }
             isComplete = true
             return
         }
@@ -175,6 +183,38 @@ class SetupService {
 
         try? modelContext.save()
         return deck
+    }
+
+    @MainActor
+    private func backfillSideboard(deck: Deck, bundled: BundledDeck, modelContext: ModelContext) -> Bool {
+        let hasSideboard = deck.cards.contains { $0.board == "sideboard" }
+        guard !hasSideboard, !bundled.sideboard.isEmpty else { return false }
+
+        for bundledEntry in bundled.sideboard {
+            let card = Card(
+                scryfallId: bundledEntry.scryfallId,
+                oracleId: "",
+                name: bundledEntry.name,
+                setCode: bundledEntry.setCode,
+                collectorNumber: bundledEntry.collectorNumber,
+                oracleText: bundledEntry.oracleText ?? "",
+                manaCost: bundledEntry.manaCost ?? "",
+                typeLine: bundledEntry.typeLine,
+                power: bundledEntry.power,
+                toughness: bundledEntry.toughness,
+                rarity: bundledEntry.rarity,
+                layout: bundledEntry.layout,
+                frontImageUrl: ""
+            )
+            modelContext.insert(card)
+
+            let entry = DeckEntry(quantity: bundledEntry.quantity, board: "sideboard", card: card)
+            modelContext.insert(entry)
+            deck.cards.append(entry)
+        }
+
+        try? modelContext.save()
+        return true
     }
 
     private func collectUniqueCards(from deck: Deck) -> [Card] {
