@@ -4,7 +4,7 @@ import SwiftData
 @Model
 class DeckEntry {
     var quantity: Int
-    var board: String
+    var board: String = "mainboard"
 
     @Relationship(deleteRule: .nullify)
     var card: Card?

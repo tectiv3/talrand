@@ -139,6 +139,8 @@ actor ScryfallAPI {
 
     init() {
         let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 60
         config.httpAdditionalHeaders = [
             "Accept": "application/json",
             "User-Agent": "Talrand/1.0"
