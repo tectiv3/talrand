@@ -4,6 +4,7 @@ import SwiftData
 struct DeckListView: View {
     @Query private var decks: [Deck]
     @State private var searchText = ""
+    @State private var collapsedSections: Set<String> = []
 
     private var deck: Deck? { decks.first }
 
@@ -45,17 +46,38 @@ struct DeckListView: View {
         List {
             commanderSection(deck)
             ForEach(groupedEntries, id: \.category) { group in
+                let isCollapsed = collapsedSections.contains(group.category)
                 Section {
-                    ForEach(group.entries, id: \.persistentModelID) { entry in
-                        if let card = entry.card {
-                            NavigationLink(value: card) {
-                                cardRow(card, quantity: entry.quantity)
+                    if !isCollapsed {
+                        ForEach(group.entries, id: \.persistentModelID) { entry in
+                            if let card = entry.card {
+                                NavigationLink(value: card) {
+                                    cardRow(card, quantity: entry.quantity)
+                                }
                             }
                         }
                     }
                 } header: {
                     let count = group.entries.reduce(0) { $0 + $1.quantity }
-                    Text("\(group.category) (\(count))")
+                    Button {
+                        withAnimation {
+                            if isCollapsed {
+                                collapsedSections.remove(group.category)
+                            } else {
+                                collapsedSections.insert(group.category)
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Text("\(group.category) (\(count))")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                        }
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }

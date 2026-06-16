@@ -123,17 +123,23 @@ struct CardDetailView: View {
 
     // MARK: - Rulings
 
+    private var uniqueRulings: [Ruling] {
+        var seen = Set<String>()
+        return card.rulings
+            .sorted { $0.date > $1.date }
+            .filter { seen.insert($0.comment).inserted }
+    }
+
     private var rulingsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Rulings")
                 .font(.headline)
 
-            if card.rulings.isEmpty {
+            if uniqueRulings.isEmpty {
                 Text("No rulings for this card")
                     .foregroundStyle(.secondary)
             } else {
-                let sorted = card.rulings.sorted { $0.date > $1.date }
-                ForEach(sorted, id: \.date) { ruling in
+                ForEach(uniqueRulings, id: \.comment) { ruling in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(ruling.date)
                             .font(.caption)

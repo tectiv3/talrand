@@ -188,6 +188,11 @@ class SetupService {
                 card.frontImageUrl = frontURL
                 card.backImageUrl = backURL
 
+                for existing in card.rulings {
+                    modelContext.delete(existing)
+                }
+                card.rulings.removeAll()
+
                 let rulings = try await ScryfallAPI.shared.fetchRulings(scryfallId: card.scryfallId)
                 for ruling in rulings {
                     let rulingObj = Ruling(date: ruling.publishedAt, source: ruling.source, comment: ruling.comment)
