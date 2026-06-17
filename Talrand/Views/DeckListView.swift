@@ -127,6 +127,7 @@ struct DeckListView: View {
     private func categorySection(_ category: String, entries: [DeckEntry]) -> some View {
         let isCollapsed = collapsedSections.contains(category)
         let count = entries.reduce(0) { $0 + $1.quantity }
+        let cards = entries.compactMap(\.card)
 
         return VStack(spacing: 0) {
             sectionHeader(category, count: count, isCollapsed: isCollapsed)
@@ -134,7 +135,7 @@ struct DeckListView: View {
                 VStack(spacing: 1) {
                     ForEach(entries, id: \.persistentModelID) { entry in
                         if let card = entry.card {
-                            NavigationLink(value: card) {
+                            NavigationLink(value: CategoryCards(cards: cards, selectedID: card.scryfallId)) {
                                 cardRow(card, quantity: entry.quantity)
                             }
                             .buttonStyle(.plain)
@@ -151,6 +152,7 @@ struct DeckListView: View {
         let isCollapsed = collapsedSections.contains("Sideboard")
         let count = sideboardEntries.reduce(0) { $0 + $1.quantity }
         let sorted = sideboardEntries.sorted { ($0.card?.name ?? "") < ($1.card?.name ?? "") }
+        let cards = sorted.compactMap(\.card)
 
         VStack(spacing: 0) {
             sectionHeader("Sideboard", count: count, isCollapsed: isCollapsed)
@@ -158,7 +160,7 @@ struct DeckListView: View {
                 VStack(spacing: 1) {
                     ForEach(sorted, id: \.persistentModelID) { entry in
                         if let card = entry.card {
-                            NavigationLink(value: card) {
+                            NavigationLink(value: CategoryCards(cards: cards, selectedID: card.scryfallId)) {
                                 cardRow(card, quantity: entry.quantity)
                             }
                             .buttonStyle(.plain)

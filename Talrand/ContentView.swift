@@ -86,6 +86,11 @@ struct ContentView: View {
                         cardForSwap = card
                     })
                 }
+                .navigationDestination(for: CategoryCards.self) { nav in
+                    CardPagerView(cards: nav.cards, selectedID: nav.selectedID) { card in
+                        cardForSwap = card
+                    }
+                }
         }
     }
 
