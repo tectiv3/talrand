@@ -58,6 +58,7 @@ struct CardDetailView: View {
                     .strokeBorder(MTGTheme.cardBorder, lineWidth: 1)
             )
             .shadow(color: MTGTheme.gold.opacity(0.15), radius: 20, y: 8)
+            .scaleEffect(x: showingBack ? -1 : 1, y: 1)
             .rotation3DEffect(
                 .degrees(showingBack ? 180 : 0),
                 axis: (x: 0, y: 1, z: 0)
