@@ -22,7 +22,9 @@ struct ContentView: View {
                 .task {
                     await backfillSideboardIfNeeded(deck: deck)
                     #if DEBUG
-                    DebugExport.deckIndex(modelContext: modelContext)
+                    if UserDefaults.standard.bool(forKey: "scannerDebug") {
+                        DebugExport.deckIndex(modelContext: modelContext)
+                    }
                     #endif
                 }
         } else {

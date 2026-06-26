@@ -72,7 +72,11 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     // rectangle detection rejects the card (wrong aspect ratio) and OCR /
     // feature-print matching run on sideways pixels → garbage.
     private let imageOrientation: CGImagePropertyOrientation = .right
-    private let verbose = true
+    // Scanner diagnostics ([scan]/[name]/[fire]/[match] prints + scan_crop/strip
+    // image dumps) are off by default and toggled at runtime from the deck's gear
+    // menu — the sole user installs Debug builds, so a compile-time gate wouldn't
+    // help. Read live so flipping the switch takes effect without a restart.
+    private var verbose: Bool { UserDefaults.standard.bool(forKey: "scannerDebug") }
     private var lastFeedbackTime: CFAbsoluteTime = 0
     private var lastVisionMatchId: String?
     private var visionConsecutiveCount = 0

@@ -48,6 +48,7 @@ struct DeckListView: View {
     @State private var searchText = ""
     @AppStorage("collapsedSections") private var collapsedSections = CollapsedSections(["Sideboard"])
     @AppStorage("thumbnailSize") private var thumbnailSize = ThumbnailSize.normal
+    @AppStorage("scannerDebug") private var scannerDebug = false
 
     private var deck: Deck? { decks.first }
 
@@ -117,6 +118,9 @@ struct DeckListView: View {
                         } label: {
                             EmptyView()
                         }
+                    }
+                    Section("Debug") {
+                        Toggle("Scanner diagnostics", isOn: $scannerDebug)
                     }
                 } label: {
                     Image(systemName: "gearshape")
