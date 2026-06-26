@@ -19,13 +19,29 @@ SwiftUI · SwiftData · Vision · AVFoundation · Scryfall API
 
 ## Requirements
 
-- iOS 17+
+- iOS 26+
 - Xcode 16+
+- [XcodeGen](https://github.com/yonwoo9/XcodeGen) (the Makefile runs it via `nix shell nixpkgs#xcodegen`)
 
-## Build
+## Project generation
+
+The Xcode project is generated from `project.yml` by XcodeGen and is **not** committed
+(`Talrand.xcodeproj/` is git-ignored). On a fresh clone there is nothing to open in
+Xcode until you generate it:
 
 ```
-make build
+cp Local.xcconfig.example Local.xcconfig   # set your DEVELOPMENT_TEAM (kept out of git)
+make generate                              # writes Talrand.xcodeproj
+open Talrand.xcodeproj
+```
+
+Re-run `make generate` after editing `project.yml` or adding/removing files.
+
+## Build & test
+
+```
+make build   # authoritative typecheck (iOS Simulator target)
+make test    # camera-free OCR + deck-resolution regression suite (also Cmd+U in Xcode)
 ```
 
 ## Setup
