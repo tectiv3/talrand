@@ -38,7 +38,6 @@ struct CameraScannerView: View {
     let mode: ScannerMode
     var onCardMatched: ((Card) -> Void)?
     var onNewCardScanned: ((String, String, String) -> Void)?
-    var onBrowseDeck: (() -> Void)?
 
     @State private var cameraService = CameraService()
     @Environment(\.modelContext) private var modelContext
@@ -170,20 +169,6 @@ struct CameraScannerView: View {
                 .padding(.top, 8)
 
                 Spacer()
-
-                if let onBrowseDeck {
-                    Button {
-                        onBrowseDeck()
-                    } label: {
-                        Label("Browse Deck", systemImage: "rectangle.stack")
-                            .font(.subheadline.bold())
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(.ultraThinMaterial, in: Capsule())
-                    }
-                    .padding(.trailing, 16)
-                    .padding(.top, 8)
-                }
             }
             Spacer()
         }

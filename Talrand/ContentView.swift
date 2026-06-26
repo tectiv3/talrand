@@ -113,9 +113,6 @@ struct ContentView: View {
             onCardMatched: { card in
                 recordScan(card)
                 scannedCard = card
-            },
-            onBrowseDeck: {
-                selectedTab = 0
             }
         )
     }
