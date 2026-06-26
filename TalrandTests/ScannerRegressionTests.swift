@@ -59,9 +59,26 @@ final class ScannerRegressionTests: XCTestCase {
         let card = try cardCrop(name)
         let (text, candidates) = ScanOCR.collectorReadout(in: card,
                                                           knownSetCodes: [],
-                                                          customWords: [],
                                                           ciContext: ciContext)
         return (text, candidates.map(\.collectorNumber))
+    }
+
+    // MARK: - Card detection
+
+    /// `cardCrop` falls back to the raw frame when rectangle detection misses, so
+    /// no OCR test would notice if perspective correction broke for *every*
+    /// fixture. This guards that floor: detection must still find a card in at
+    /// least one fixture, or it's regressed wholesale.
+    func testDetectCardSucceedsOnAtLeastOneFixture() throws {
+        let fixtures = ["brainstorm", "counterspell", "docent_of_perfection", "crystal_shard", "ravensform"]
+        var detected = 0
+        for name in fixtures {
+            let (image, orientation) = try loadFixture(name)
+            if ScanOCR.detectCard(in: CIImage(cgImage: image), orientation: orientation, ciContext: ciContext) != nil {
+                detected += 1
+            }
+        }
+        XCTAssertGreaterThan(detected, 0, "rectangle detection found no card in ANY fixture — perspective correction likely broken")
     }
 
     // MARK: - Collector-number path
@@ -208,11 +225,31 @@ final class ScannerRegressionTests: XCTestCase {
                        "khm #72 should resolve to Ravenform, got \(resolved?.name ?? "nil")")
     }
 
+    /// Positive guard for the bare-number disambiguation: #72 collides across the
+    /// deck (Island/Ravenform/Repeal/Talrand), and only Ravenform is a Sorcery,
+    /// so the *type* tiebreak must land exactly on Ravenform. Without this the
+    /// `!= Ponder` tests stay green even if the `type` branch is deleted (nil also
+    /// passes), so this pins the branch the headline fix added.
+    func testResolverBareNumberDisambiguatesByType() {
+        let resolved = deckResolver.resolve(num(nil, "72"), type: "Sorcery", nearestId: nil)
+        XCTAssertEqual(resolved?.name, "Ravenform",
+                       "type tiebreak should resolve #72+Sorcery to Ravenform, got \(resolved?.name ?? "nil")")
+    }
+
+    /// Positive guard for the feature-print fusion branch: with no type read, the
+    /// nearest-neighbour hint alone must break the #72 collision onto Ravenform.
+    func testResolverBareNumberDisambiguatesByNearestId() {
+        let ravenformId = "f2d5e87b-1ee8-47db-9bc3-f5becfe79b37"
+        let resolved = deckResolver.resolve(num(nil, "72"), type: nil, nearestId: ravenformId)
+        XCTAssertEqual(resolved?.name, "Ravenform",
+                       "nearestId fusion should resolve #72 to Ravenform, got \(resolved?.name ?? "nil")")
+    }
+
     /// End-to-end: scan the physical Japanese Ravenform photo and confirm the
     /// full OCR -> resolve pipeline never lands on Ponder (the original bug).
     func testRavenformFixtureDoesNotResolveToPonder() throws {
         let card = try cardCrop("ravensform")
-        let (text, candidates) = ScanOCR.collectorReadout(in: card, knownSetCodes: [], customWords: [], ciContext: ciContext)
+        let (text, candidates) = ScanOCR.collectorReadout(in: card, knownSetCodes: [], ciContext: ciContext)
         let type = ScanOCR.typeReadout(in: card).type
         let resolved = candidates.lazy.compactMap { self.deckResolver.resolve($0, type: type, nearestId: nil) }.first
         XCTAssertNotEqual(resolved?.name, "Ponder",

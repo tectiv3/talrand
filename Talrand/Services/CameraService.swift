@@ -34,7 +34,8 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var activeDevice: AVCaptureDevice?
     private var lastProcessedTime: CFAbsoluteTime = 0
     private let minimumFrameInterval: CFAbsoluteTime = 0.2
-    private var cachedSetCodes: [String] = []
+    // Read on `processingQueue` (the OCR path); written there too — see
+    // `setupSession`. The fetch happens off-queue, then hops on to assign.
     private var knownSetCodesSet: Set<String> = []
     private var lastCandidate: CollectorNumberCandidate?
     private var consecutiveMatchCount = 0
@@ -180,8 +181,13 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         isConfigured = true
 
         Task {
-            cachedSetCodes = await ScryfallAPI.shared.fetchSetCodes()
-            knownSetCodesSet = Set(cachedSetCodes)
+            let codes = await ScryfallAPI.shared.fetchSetCodes()
+            // `knownSetCodesSet` is read on `processingQueue` during OCR, so it
+            // must be written there too — assigning from this Task's context
+            // would race the capture callback.
+            processingQueue.async { [weak self] in
+                self?.knownSetCodesSet = Set(codes)
+            }
         }
     }
 
@@ -425,7 +431,6 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         let (ocrText, candidates) = ScanOCR.collectorReadout(
             in: cardImage,
             knownSetCodes: knownSetCodesSet,
-            customWords: cachedSetCodes,
             ciContext: ciContext
         )
         handleRecognitionResults(ocrText: ocrText, candidates: candidates)

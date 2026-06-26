@@ -55,11 +55,8 @@ class CardImageMatcher {
         guard let art = cropToArt(image) else { return nil }
         guard let queryPrint = generateFeaturePrint(from: art) else { return nil }
 
-        var bestId: String?
-        var bestDist: Float = .greatestFiniteMagnitude
-        var runnerUpDist: Float = .greatestFiniteMagnitude
-        var runnerUpId: String?
-
+        var scored: [(id: String, distance: Float)] = []
+        scored.reserveCapacity(references.count)
         for ref in references {
             var d: Float = 0
             do {
@@ -67,24 +64,16 @@ class CardImageMatcher {
             } catch {
                 continue
             }
-            if d < bestDist {
-                // Only count a *different* card as the runner-up; multiple
-                // printings of the same card would otherwise mask the margin.
-                if ref.scryfallId != bestId {
-                    runnerUpDist = bestDist
-                    runnerUpId = bestId
-                }
-                bestDist = d
-                bestId = ref.scryfallId
-            } else if d < runnerUpDist, ref.scryfallId != bestId {
-                runnerUpDist = d
-                runnerUpId = ref.scryfallId
-            }
+            scored.append((ref.scryfallId, d))
         }
 
-        guard let id = bestId, bestDist < nearThreshold else { return nil }
-        let strong = bestDist < strongThreshold && (runnerUpDist - bestDist) > minRunnerUpGap
-        return MatchResult(scryfallId: id, distance: bestDist, runnerUpDistance: runnerUpDist, runnerUpId: runnerUpId, isStrong: strong)
+        guard let ranked = MatchRanking.rank(scored), ranked.bestDistance < nearThreshold else { return nil }
+        let strong = ranked.bestDistance < strongThreshold && (ranked.runnerUpDistance - ranked.bestDistance) > minRunnerUpGap
+        return MatchResult(scryfallId: ranked.bestId,
+                           distance: ranked.bestDistance,
+                           runnerUpDistance: ranked.runnerUpDistance,
+                           runnerUpId: ranked.runnerUpId,
+                           isStrong: strong)
     }
 
     // MARK: - Private

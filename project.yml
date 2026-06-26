@@ -51,6 +51,7 @@ targets:
       - path: Talrand/Services/ScanOCR.swift
       - path: Talrand/Services/CollectorNumberParser.swift
       - path: Talrand/Services/DeckResolver.swift
+      - path: Talrand/Services/MatchRanking.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.talrand.tests

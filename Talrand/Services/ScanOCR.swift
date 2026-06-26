@@ -91,15 +91,18 @@ enum ScanOCR {
     }
 
     /// Crop the bottom strip, OCR it, and parse collector-number candidates.
+    ///
+    /// No `customWords`: Vision only consults that list when
+    /// `usesLanguageCorrection` is true, and correction is off here on purpose
+    /// (it mangles alphanumeric codes like "69/350"). Passing set codes as custom
+    /// words would be silently ignored, so the path doesn't take them.
     static func collectorReadout(in cardImage: CGImage,
                                  knownSetCodes: Set<String>,
-                                 customWords: [String],
                                  ciContext: CIContext) -> (text: String, candidates: [CollectorNumberCandidate]) {
         guard let strip = collectorStrip(from: cardImage, ciContext: ciContext) else { return ("", []) }
         // Small low-contrast collector text often scores below 0.5; the parser
         // is strict enough that a looser confidence floor won't add false codes.
         let text = recognizedStrings(in: strip,
-                                     customWords: customWords,
                                      usesLanguageCorrection: false,
                                      minimumConfidence: 0.3).joined(separator: " ")
         let candidates = CollectorNumberParser.parse(ocrText: text, knownSetCodes: knownSetCodes)

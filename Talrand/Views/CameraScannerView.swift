@@ -83,6 +83,10 @@ struct CameraScannerView: View {
         }
         .onChange(of: cameraService.lastScanResult) { _, result in
             guard let result else { return }
+            // Clear so a repeat scan of the same physical card — which produces
+            // an identical ScanResult — still triggers onChange (mirrors the
+            // name/image channels, which self-clear for the same reason).
+            cameraService.lastScanResult = nil
             processCandidates(result)
         }
         .onChange(of: cameraService.imageMatchResult) { _, scryfallId in
@@ -420,7 +424,9 @@ struct CameraScannerView: View {
             typeLine: { $0.typeLine }
         )
         let result = resolver.resolve(candidate, type: type, nearestId: nearestId)
-        print("[match] #\(candidate.collectorNumber) type=\(type ?? "?") near=\(nearestId ?? "?") -> \(result?.name ?? "nil")")
+        if UserDefaults.standard.bool(forKey: "scannerDebug") {
+            print("[match] #\(candidate.collectorNumber) type=\(type ?? "?") near=\(nearestId ?? "?") -> \(result?.name ?? "nil")")
+        }
         return result
     }
 
