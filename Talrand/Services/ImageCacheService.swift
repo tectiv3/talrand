@@ -1,5 +1,4 @@
 import Foundation
-import UIKit
 
 struct ImageCacheService {
     private let fileManager = FileManager.default
@@ -47,23 +46,6 @@ struct ImageCacheService {
 
     func deleteImage(filename: String) {
         let path = cacheDirectory().appendingPathComponent(filename)
-        try? fileManager.removeItem(at: path)
-    }
-
-    func saveCustomImage(_ image: UIImage, for cardId: String) -> String? {
-        guard let data = image.jpegData(compressionQuality: 0.85) else { return nil }
-        let filename = "custom_\(cardId).jpg"
-        let destination = cacheDirectory().appendingPathComponent(filename)
-        do {
-            try data.write(to: destination)
-            return filename
-        } catch {
-            return nil
-        }
-    }
-
-    func deleteCustomImage(for cardId: String) {
-        let path = cacheDirectory().appendingPathComponent("custom_\(cardId).jpg")
         try? fileManager.removeItem(at: path)
     }
 }
