@@ -88,15 +88,12 @@ struct CameraScannerView: View {
         .onChange(of: cameraService.imageMatchResult) { _, scryfallId in
             guard let scryfallId else { return }
             cameraService.imageMatchResult = nil
-            guard Date.now.timeIntervalSince(lastMatchTime) >= matchCooldown else { return }
-            guard let card = fetchCard(scryfallId: scryfallId) else { return }
-            lastMatchTime = .now
-            matchedCardName = card.name
-            Task {
-                try? await Task.sleep(for: .seconds(matchCooldown))
-                matchedCardName = nil
-            }
-            onCardMatched?(card)
+            fireMatch(scryfallId: scryfallId)
+        }
+        .onChange(of: cameraService.nameMatchResult) { _, scryfallId in
+            guard let scryfallId else { return }
+            cameraService.nameMatchResult = nil
+            fireMatch(scryfallId: scryfallId)
         }
         .onDisappear {
             cameraService.stopSession()
@@ -351,13 +348,28 @@ struct CameraScannerView: View {
 
     // MARK: - Matching
 
+    /// Confirms a recognized card (from feature-print or the name path), honoring
+    /// the cooldown so the two paths can't double-fire on the same card.
+    private func fireMatch(scryfallId: String) {
+        guard Date.now.timeIntervalSince(lastMatchTime) >= matchCooldown else { return }
+        guard let card = fetchCard(scryfallId: scryfallId) else { return }
+        lastMatchTime = .now
+        noMatchStreak = 0
+        matchedCardName = card.name
+        Task {
+            try? await Task.sleep(for: .seconds(matchCooldown))
+            matchedCardName = nil
+        }
+        onCardMatched?(card)
+    }
+
     private func processCandidates(_ result: ScanResult) {
         let candidates = result.candidates
         guard !candidates.isEmpty else { return }
         guard Date.now.timeIntervalSince(lastMatchTime) >= matchCooldown else { return }
 
         for candidate in candidates {
-            if let card = findCard(for: candidate, type: result.cardType) {
+            if let card = findCard(for: candidate, type: result.cardType, nearestId: cameraService.nearestMatchId) {
                 lastMatchTime = .now
                 noMatchStreak = 0
                 matchedCardName = card.name
@@ -394,7 +406,7 @@ struct CameraScannerView: View {
         }
     }
 
-    private func findCard(for candidate: CollectorNumberCandidate, type: String?) -> Card? {
+    private func findCard(for candidate: CollectorNumberCandidate, type: String?, nearestId: String?) -> Card? {
         // Set code + number is unique — trust it directly.
         if let setCode = candidate.setCode,
            let name = findCardName(setCode: setCode, collectorNumber: candidate.collectorNumber) {
@@ -402,13 +414,22 @@ struct CameraScannerView: View {
         }
 
         // Number alone can map to several deck cards (each has a printing with
-        // that number). Accept only when it resolves to exactly one — using the
-        // OCR'd card type to break ties — otherwise refuse rather than guess.
+        // that number). Accept only when it resolves to exactly one — otherwise
+        // disambiguate before guessing.
         let cards = findCards(collectorNumber: candidate.collectorNumber)
-        print("[match] #\(candidate.collectorNumber) type=\(type ?? "?") -> \(cards.map { "\($0.name)|\($0.typeLine)" })")
+        print("[match] #\(candidate.collectorNumber) type=\(type ?? "?") near=\(nearestId ?? "?") -> \(cards.map { "\($0.name)|\($0.typeLine)" })")
         if cards.count == 1 { return cards.first }
         guard cards.count > 1 else { return nil }
 
+        // Fusion: feature-print can't fire on its own for a different-printing
+        // card, but its nearest neighbour still ranks the right card first.
+        // Constraining that hint to the number's candidate set makes it safe
+        // (a free feature-print match previously mis-fired, e.g. Negate).
+        if let nearestId, let hit = cards.first(where: { $0.scryfallId == nearestId }) {
+            return hit
+        }
+
+        // Fall back to the OCR'd card type to break the tie.
         if let type {
             let matched = cards.filter { $0.typeLine.localizedCaseInsensitiveContains(type) }
             if matched.count == 1 { return matched.first }

@@ -1,13 +1,17 @@
 ## How Talrand's Card Scanner Works (durable facts only)
 
-The scanner (`CameraService` + `CameraScannerView`) recognizes a physical card via **two parallel paths per frame**:
-1. **Feature-print** — `CardImageMatcher` / `VNGenerateImageFeaturePrint` on the card art vs deck reference images.
-2. **Collector-code OCR** — bottom-strip text recognition → `CollectorNumberParser` → `CollectorNumberEntry` lookup (built from `fetchAllPrintings`, so it covers every printing).
+The scanner (`CameraService` + `CameraScannerView`) recognizes a physical card per frame via **four signals**, in priority order:
+1. **Name** — `recognizeCardName` OCRs the top title bar (ja+en) → `CardNameMatcher` matches against the deck's English names AND Japanese printed names (`Card.printedName`, backfilled from Scryfall). A unique 2-frame match fires directly. **This is the strategic, most reliable path for the user's Japanese cards** — printing-independent and collision-free.
+2. **Feature-print** — `CardImageMatcher` / `VNGenerateImageFeaturePrint` on the card art vs deck reference images. Strong+clear match fires; its nearest neighbour is also exposed (`nearestMatchId`) even when too weak to fire, for fusion.
+3. **Collector-code OCR** — bottom strip → `CollectorNumberParser` → `CollectorNumberEntry` lookup (built from `fetchAllPrintings`, covers every printing).
+4. **Fusion** — when a collector number maps to several deck cards, `findCard` picks the one equal to feature-print's `nearestMatchId` (constrained to the candidate set → safe), else uses OCR'd type, else refuses.
 
-**Hard constraint (this is the durable point):** the user's physical cards are Japanese and consistently DIFFERENT PRINTINGS than the English Moxfield-imported deck. Different printing → different art → feature-print is weak/fails. The **collector-code path is printing-agnostic and is the reliable path** for this deck. Swapping a deck entry to the owned printing makes feature-print work again (proven with An Offer → FDN#160).
+**Hard constraint (the durable point):** the user's physical cards are Japanese and consistently DIFFERENT PRINTINGS than the English Moxfield deck. Different printing → different art → feature-print is weak. The name + collector-code/fusion paths are printing-agnostic and carry the deck.
 
-**Open limitation:** old cards with no printed set code (e.g. Counterspell MMQ#69) can't be disambiguated when several deck cards share a collector number.
+**Old-frame collision problem:** pre-M15 cards (Conspiracy, Mercadian Masques) print NO set-code text, only `NN/total`. Number-only reads collide across the all-printings table. Brainstorm (physical CNS 91/210, deck 13/90) and Counterspell (physical MMQ#69) are the canonical cases — addressed by the name path + fusion.
 
-> **Do NOT trust any specific thresholds / distance values / vote-gate numbers from memory.** The scanner pipeline (thresholds, OCR, rectangle detection, camera service) is actively tuned — it changed substantially on 2026-06-26 across several commits. For current values and matching logic, read the source (`CameraService`, `CardImageMatcher`, `CollectorNumberParser`) and `SCANNING_NOTES.md` (repo root). Treat them as live, not memorized.
+`Card.printedName` (JP) is backfilled on launch via `SetupService.backfillPrintedNames` (schema default `""` → no store wipe; only cards missing a name hit the network).
+
+> **Do NOT trust specific thresholds/distances from memory.** The pipeline is actively tuned. Read the source (`CameraService`, `CardImageMatcher`, `CollectorNumberParser`/`CardNameMatcher`) and `SCANNING_NOTES.md` for live values.
 
 Related: `device_debug_workflow`, `data_driven_debugging`.

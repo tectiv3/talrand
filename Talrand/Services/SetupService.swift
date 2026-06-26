@@ -100,6 +100,22 @@ class SetupService {
                 await fetchCardData(card: card, modelContext: modelContext)
             }
         }
+        await backfillPrintedNames(deck: deck, modelContext: modelContext)
+    }
+
+    /// One-time-per-card fetch of the Japanese printed name. Runs on launch for
+    /// existing installs (the schema default is "") so the name-scan path works
+    /// without a full re-sync; only cards still missing a name hit the network.
+    @MainActor
+    private func backfillPrintedNames(deck: Deck, modelContext: ModelContext) async {
+        let cards = deck.cards.compactMap(\.card)
+        for card in cards where card.printedName.isEmpty && !card.oracleId.isEmpty {
+            if let jp = await ScryfallAPI.shared.fetchLocalizedName(oracleId: card.oracleId, lang: "ja") {
+                card.printedName = jp
+                try? modelContext.save()
+            }
+            try? await Task.sleep(for: .milliseconds(120))
+        }
     }
 
     @MainActor

@@ -35,6 +35,7 @@ struct ScryfallCard: Codable {
     let layout: String
     let imageUris: ScryfallImageUris?
     let cardFaces: [ScryfallCardFace]?
+    let printedName: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -42,6 +43,7 @@ struct ScryfallCard: Codable {
         case name
         case set
         case collectorNumber = "collector_number"
+        case printedName = "printed_name"
         case oracleText = "oracle_text"
         case manaCost = "mana_cost"
         case typeLine = "type_line"
@@ -186,6 +188,17 @@ actor ScryfallAPI {
         }
 
         return allCards
+    }
+
+    /// The card's printed name in a given language (default Japanese), taken from
+    /// any printing in that language. Used to identify physical foreign cards by
+    /// title. Returns nil when no printing exists in that language.
+    func fetchLocalizedName(oracleId: String, lang: String = "ja") async -> String? {
+        guard !oracleId.isEmpty,
+              let encodedId = oracleId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+        let url = "\(baseURL)/cards/search?q=oracleid%3A\(encodedId)+lang%3A\(lang)&unique=prints"
+        let result: ScryfallSearchResult? = try? await request(url: url)
+        return result?.data.compactMap { $0.printedName }.first { !$0.isEmpty }
     }
 
     func searchCards(query: String) async throws -> [ScryfallCard] {

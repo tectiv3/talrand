@@ -21,6 +21,10 @@ class Card: Hashable {
     var localFrontImagePath: String?
     var localBackImagePath: String?
     var customImagePath: String? = nil
+    // Japanese printed name (e.g. "渦まく知識"), backfilled from Scryfall. Lets the
+    // scanner identify a physical JP card by its title regardless of printing —
+    // the reliable path when art differs and there's no printed set code.
+    var printedName: String = ""
 
     @Relationship(deleteRule: .cascade)
     var rulings: [Ruling]

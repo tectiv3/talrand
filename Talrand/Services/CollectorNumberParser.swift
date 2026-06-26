@@ -34,6 +34,32 @@ struct CardTypeParser {
     }
 }
 
+/// Matches an OCR'd card title against the deck's known names (English + the
+/// Japanese printed name). Precision over recall: it only returns a hit when the
+/// full card name appears within the OCR text and exactly one deck card matches,
+/// so furigana/noise in the title bar can't produce a wrong identification.
+struct CardNameMatcher {
+    /// Lowercased, stripped of whitespace and separators; CJK and alphanumerics
+    /// survive so "渦まく知識" / "Brainstorm" compare cleanly across OCR noise.
+    static func normalize(_ s: String) -> String {
+        String(s.lowercased().unicodeScalars.filter {
+            CharacterSet.alphanumerics.contains($0) || $0.value > 0x2E7F // keep CJK
+        })
+    }
+
+    static func match(ocrText: String, candidates: [(name: String, id: String)]) -> String? {
+        let q = normalize(ocrText)
+        guard q.count >= 3 else { return nil }
+        var hits = Set<String>()
+        for candidate in candidates {
+            let n = normalize(candidate.name)
+            guard n.count >= 3 else { continue }
+            if q.contains(n) { hits.insert(candidate.id) }
+        }
+        return hits.count == 1 ? hits.first : nil
+    }
+}
+
 struct CollectorNumberParser {
 
     static func parse(ocrText: String, knownSetCodes: Set<String> = []) -> [CollectorNumberCandidate] {
