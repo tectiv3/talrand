@@ -102,21 +102,9 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         processingQueue.async { [weak self] in
             guard let self else { return }
             var nameMap: [String: String] = [:]
-            var lookup: [(name: String, id: String)] = []
-            for item in names {
-                nameMap[item.id] = item.name
-                func add(_ s: String) {
-                    guard !s.isEmpty else { return }
-                    lookup.append((name: s, id: item.id))
-                    if let front = s.components(separatedBy: " // ").first, front != s, !front.isEmpty {
-                        lookup.append((name: front, id: item.id))
-                    }
-                }
-                add(item.name)
-                if !item.printed.isEmpty { add(item.printed) }
-            }
+            for item in names { nameMap[item.id] = item.name }
             self.cardNameMap = nameMap
-            self.nameLookup = lookup
+            self.nameLookup = ScanOCR.nameLookup(for: names)
             self.cardMatcher.loadReferences(refData)
         }
     }
@@ -337,107 +325,53 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         // for the user's foreign cards and fires on its own.
         recognizeCardName(in: cardImage)
 
-        guard let strip = collectorStrip(from: cardImage) else { return }
-
-        let request = VNRecognizeTextRequest { [weak self] request, _ in
-            self?.handleRecognitionResults(request.results as? [VNRecognizedTextObservation])
+        if verbose, now - lastStripDumpTime > 1.0,
+           let strip = ScanOCR.collectorStrip(from: cardImage, ciContext: ciContext) {
+            lastStripDumpTime = now
+            saveDebugStrip(strip)
         }
-        request.recognitionLevel = .accurate
-        request.recognitionLanguages = ["ja-JP", "en-US"]
-        request.customWords = cachedSetCodes
-        request.usesLanguageCorrection = false
 
-        let handler = VNImageRequestHandler(cgImage: strip, options: [:])
-        try? handler.perform([request])
-    }
-
-    /// Bottom strip of the card, upscaled 3× and contrast-boosted to grayscale so
-    /// Vision can read the small set code + collector number.
-    private func collectorStrip(from image: CGImage) -> CGImage? {
-        // Full width: the collector number is bottom-LEFT on modern cards but
-        // bottom-RIGHT on pre-2014 cards. The parser's denominator guard handles
-        // the power/toughness "4/4" noise, so we don't need to crop it out.
-        let stripHeight = Int(Double(image.height) * 0.16)
-        let rect = CGRect(x: 0, y: image.height - stripHeight, width: image.width, height: stripHeight)
-        guard let cropped = image.cropping(to: rect) else { return nil }
-
-        // Upscale for legibility, desaturate, then *sharpen* rather than
-        // hard-contrast — aggressive contrast clips hairline glyphs (the "1" in
-        // "0160" was eroded to an apostrophe). Sharpening recovers thin strokes.
-        let processed = CIImage(cgImage: cropped)
-            .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 4.0])
-            .applyingFilter("CIColorControls", parameters: [
-                kCIInputSaturationKey: 0.0,
-                kCIInputContrastKey: 1.12,
-            ])
-            .applyingFilter("CISharpenLuminance", parameters: [
-                kCIInputSharpnessKey: 0.7,
-            ])
-        let result = ciContext.createCGImage(processed, from: processed.extent)
-        if verbose, let result, CFAbsoluteTimeGetCurrent() - lastStripDumpTime > 1.0 {
-            lastStripDumpTime = CFAbsoluteTimeGetCurrent()
-            saveDebugStrip(result)
-        }
-        return result
+        let (ocrText, candidates) = ScanOCR.collectorReadout(
+            in: cardImage,
+            knownSetCodes: knownSetCodesSet,
+            customWords: cachedSetCodes,
+            ciContext: ciContext
+        )
+        handleRecognitionResults(ocrText: ocrText, candidates: candidates)
     }
 
     /// The type line sits just below the art (~52–64% down). Read it into a
     /// Scryfall type keyword cached for the collector-number disambiguation.
     private func recognizeCardType(in image: CGImage) {
-        let h = Double(image.height)
-        let rect = CGRect(x: 0, y: Int(h * 0.50), width: image.width, height: Int(h * 0.16))
-        guard let cropped = image.cropping(to: rect) else { return }
-
-        let request = VNRecognizeTextRequest { [weak self] request, _ in
-            let text = (request.results as? [VNRecognizedTextObservation])?
-                .compactMap { $0.topCandidates(1).first?.string }
-                .joined(separator: " ") ?? ""
-            let type = CardTypeParser.parse(text)
-            if type != nil { self?.lastDetectedType = type }
-        }
-        // Japanese type lines ("インスタント") need .accurate; .fast is Latin-only.
-        request.recognitionLevel = .accurate
-        request.recognitionLanguages = ["ja-JP", "en-US"]
-        try? VNImageRequestHandler(cgImage: cropped, options: [:]).perform([request])
+        let type = ScanOCR.typeReadout(in: image).type
+        if type != nil { lastDetectedType = type }
     }
 
     /// The card title sits in the top name bar (~2–11% down). OCR it and match
     /// against the deck's English + Japanese names; a confident, unique match
     /// over two frames fires directly — printing-independent, collision-free.
     private func recognizeCardName(in image: CGImage) {
-        let h = Double(image.height)
-        let rect = CGRect(x: 0, y: Int(h * 0.02), width: image.width, height: Int(h * 0.10))
-        guard let cropped = image.cropping(to: rect) else { return }
-
-        let request = VNRecognizeTextRequest { [weak self] request, _ in
-            guard let self else { return }
-            let text = (request.results as? [VNRecognizedTextObservation])?
-                .compactMap { $0.topCandidates(1).first?.string }
-                .joined(separator: " ") ?? ""
-            guard let id = CardNameMatcher.match(ocrText: text, candidates: self.nameLookup) else {
-                self.lastNameMatchId = nil
-                self.nameConsecutiveCount = 0
-                return
-            }
-            if verbose { print("[name] OCR=\(text) -> \(self.cardNameMap[id] ?? id)") }
-            if id == self.lastNameMatchId {
-                self.nameConsecutiveCount += 1
-            } else {
-                self.lastNameMatchId = id
-                self.nameConsecutiveCount = 1
-            }
-            if self.nameConsecutiveCount >= 2 {
-                self.nameConsecutiveCount = 0
-                self.lastNameMatchId = nil
-                Task { @MainActor in
-                    self.scanFeedback = nil
-                    self.nameMatchResult = id
-                }
+        let text = ScanOCR.titleText(in: image)
+        guard let id = CardNameMatcher.match(ocrText: text, candidates: nameLookup) else {
+            lastNameMatchId = nil
+            nameConsecutiveCount = 0
+            return
+        }
+        if verbose { print("[name] OCR=\(text) -> \(cardNameMap[id] ?? id)") }
+        if id == lastNameMatchId {
+            nameConsecutiveCount += 1
+        } else {
+            lastNameMatchId = id
+            nameConsecutiveCount = 1
+        }
+        if nameConsecutiveCount >= 2 {
+            nameConsecutiveCount = 0
+            lastNameMatchId = nil
+            Task { @MainActor in
+                self.scanFeedback = nil
+                self.nameMatchResult = id
             }
         }
-        request.recognitionLevel = .accurate
-        request.recognitionLanguages = ["ja-JP", "en-US"]
-        try? VNImageRequestHandler(cgImage: cropped, options: [:]).perform([request])
     }
 
     // MARK: - Debug
@@ -460,58 +394,19 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     // MARK: - Card Detection
 
     private func detectAndCropCard(from pixelBuffer: CVPixelBuffer) -> CGImage? {
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: imageOrientation, options: [:])
-        let request = VNDetectRectanglesRequest()
-        request.minimumAspectRatio = 0.5
-        request.maximumAspectRatio = 0.85
-        request.minimumSize = 0.15
-        request.minimumConfidence = 0.8
-        request.maximumObservations = 1
-
-        do {
-            try handler.perform([request])
-        } catch {
-            if verbose { print("[scan] rectangle detection error: \(error.localizedDescription)") }
-            return nil
-        }
-        guard let rect = request.results?.first else {
-            if verbose { print("[scan] no card rectangle detected") }
-            return nil
-        }
-
-        // Orient the source to the SAME space the rectangle coordinates live in,
-        // otherwise the perspective corners are mapped against rotated extents.
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(imageOrientation)
-        let ext = ciImage.extent
-        func point(_ p: CGPoint) -> CIVector {
-            CIVector(cgPoint: CGPoint(x: ext.minX + p.x * ext.width, y: ext.minY + p.y * ext.height))
-        }
-
-        let corrected = ciImage.applyingFilter("CIPerspectiveCorrection", parameters: [
-            "inputTopLeft": point(rect.topLeft),
-            "inputTopRight": point(rect.topRight),
-            "inputBottomLeft": point(rect.bottomLeft),
-            "inputBottomRight": point(rect.bottomRight),
-        ])
-
-        return ciContext.createCGImage(corrected, from: corrected.extent)
+        let card = ScanOCR.detectCard(in: CIImage(cvPixelBuffer: pixelBuffer),
+                                      orientation: imageOrientation,
+                                      ciContext: ciContext)
+        if card == nil, verbose { print("[scan] no card rectangle detected") }
+        return card
     }
 
-    private func handleRecognitionResults(_ observations: [VNRecognizedTextObservation]?) {
-        guard let observations else { return }
-
-        // Small low-contrast collector text often scores below 0.5; the parser
-        // is strict enough that a looser confidence floor won't add false codes.
-        let confident = observations.filter { $0.confidence >= 0.3 }
-        guard !confident.isEmpty else { return }
-
-        let ocrText = confident
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: " ")
+    private func handleRecognitionResults(ocrText: String, candidates: [CollectorNumberCandidate]) {
+        // A frame with no legible collector text shouldn't reset the vote streak.
+        guard !ocrText.isEmpty else { return }
 
         if verbose { print("[scan] OCR: \(ocrText)") }
 
-        let candidates = CollectorNumberParser.parse(ocrText: ocrText, knownSetCodes: knownSetCodesSet)
         if verbose {
             let parsed = candidates.map { "\($0.setCode ?? "?")#\($0.collectorNumber)" }.joined(separator: ", ")
             print("[scan] candidates: [\(parsed)] type=\(lastDetectedType ?? "?")")

@@ -29,3 +29,17 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.talrand.app
         INFOPLIST_FILE: Talrand/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  TalrandTests:
+    type: bundle.unit-test
+    platform: iOS
+    # Non-hosted logic test: compiles the pure scanner seam directly so it never
+    # launches the app (no SwiftData/network/camera side effects). Replays
+    # fixture card photos through the real crop -> OCR -> parse logic.
+    sources:
+      - TalrandTests
+      - path: Talrand/Services/ScanOCR.swift
+      - path: Talrand/Services/CollectorNumberParser.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.talrand.tests
+        GENERATE_INFOPLIST_FILE: "YES"
