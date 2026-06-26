@@ -1,5 +1,77 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
+
+/// Minimal JSON wrapper so `.fileExporter` can write already-encoded backup data.
+struct BackupDocument: FileDocument {
+    static let readableContentTypes: [UTType] = [.json]
+    static let writableContentTypes: [UTType] = [.json]
+
+    var data: Data
+
+    init(data: Data) { self.data = data }
+
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
+
+/// Groups the export/import/confirm/error presentations so `deckContent` stays
+/// small enough for the SwiftUI type-checker.
+private struct BackupPresentations: ViewModifier {
+    @Binding var isExporting: Bool
+    let exportDocument: BackupDocument?
+    @Binding var isImporting: Bool
+    @Binding var pendingRestore: BackupV1?
+    @Binding var restoreError: String?
+    let onImport: (Result<URL, Error>) -> Void
+    let onRestore: (BackupV1) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .fileExporter(
+                isPresented: $isExporting,
+                document: exportDocument,
+                contentType: .json,
+                defaultFilename: "talrand-backup"
+            ) { _ in }
+            .fileImporter(
+                isPresented: $isImporting,
+                allowedContentTypes: [.json]
+            ) { result in
+                onImport(result)
+            }
+            .confirmationDialog(
+                "Replace your deck with this backup? Your current deck and any swaps will be replaced.",
+                isPresented: Binding(
+                    get: { pendingRestore != nil },
+                    set: { if !$0 { pendingRestore = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Replace", role: .destructive) {
+                    if let backup = pendingRestore { onRestore(backup) }
+                    pendingRestore = nil
+                }
+                Button("Cancel", role: .cancel) { pendingRestore = nil }
+            }
+            .alert(
+                "Restore Failed",
+                isPresented: Binding(
+                    get: { restoreError != nil },
+                    set: { if !$0 { restoreError = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { restoreError = nil }
+            } message: {
+                Text(restoreError ?? "")
+            }
+    }
+}
 
 enum ThumbnailSize: String, CaseIterable {
     case compact, normal, large
@@ -45,10 +117,17 @@ struct CollapsedSections: RawRepresentable {
 
 struct DeckListView: View {
     @Query private var decks: [Deck]
+    @Environment(\.modelContext) private var modelContext
     @State private var searchText = ""
     @AppStorage("collapsedSections") private var collapsedSections = CollapsedSections(["Sideboard"])
     @AppStorage("thumbnailSize") private var thumbnailSize = ThumbnailSize.normal
     @AppStorage("scannerDebug") private var scannerDebug = false
+
+    @State private var exportDocument: BackupDocument?
+    @State private var isExporting = false
+    @State private var isImporting = false
+    @State private var pendingRestore: BackupV1?
+    @State private var restoreError: String?
 
     private var deck: Deck? { decks.first }
 
@@ -109,24 +188,76 @@ struct DeckListView: View {
         .searchable(text: $searchText, prompt: "Search cards")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Section("Card Size") {
-                        Picker(selection: $thumbnailSize) {
-                            ForEach(ThumbnailSize.allCases, id: \.self) { size in
-                                Text(size.displayName).tag(size)
-                            }
-                        } label: {
-                            EmptyView()
-                        }
-                    }
-                    Section("Debug") {
-                        Toggle("Scanner diagnostics", isOn: $scannerDebug)
+                gearMenu(deck)
+            }
+        }
+        .modifier(BackupPresentations(
+            isExporting: $isExporting,
+            exportDocument: exportDocument,
+            isImporting: $isImporting,
+            pendingRestore: $pendingRestore,
+            restoreError: $restoreError,
+            onImport: handleImport,
+            onRestore: { backup in BackupService.restore(backup, into: modelContext) }
+        ))
+    }
+
+    // MARK: - Gear Menu
+
+    private func gearMenu(_ deck: Deck) -> some View {
+        Menu {
+            Section("Card Size") {
+                Picker(selection: $thumbnailSize) {
+                    ForEach(ThumbnailSize.allCases, id: \.self) { size in
+                        Text(size.displayName).tag(size)
                     }
                 } label: {
-                    Image(systemName: "gearshape")
-                        .foregroundStyle(MTGTheme.gold)
+                    EmptyView()
                 }
             }
+            Section("Backup") {
+                Button {
+                    exportBackup(deck)
+                } label: {
+                    Label("Export Backup…", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    isImporting = true
+                } label: {
+                    Label("Restore from Backup…", systemImage: "square.and.arrow.down")
+                }
+            }
+            Section("Debug") {
+                Toggle("Scanner diagnostics", isOn: $scannerDebug)
+            }
+        } label: {
+            Image(systemName: "gearshape")
+                .foregroundStyle(MTGTheme.gold)
+        }
+    }
+
+    // MARK: - Backup
+
+    private func exportBackup(_ deck: Deck) {
+        let backup = BackupService.makeBackup(deck: deck)
+        guard let data = try? BackupCodec.encode(backup) else { return }
+        exportDocument = BackupDocument(data: data)
+        isExporting = true
+    }
+
+    private func handleImport(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let data = try Data(contentsOf: url)
+                pendingRestore = try BackupCodec.decode(data)
+            } catch {
+                restoreError = error.localizedDescription
+            }
+        case .failure(let error):
+            restoreError = error.localizedDescription
         }
     }
 
