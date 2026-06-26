@@ -84,7 +84,7 @@ struct ContentView: View {
                 .navigationDestination(for: Card.self) { card in
                     CardDetailView(card: card, onReplace: {
                         cardForSwap = card
-                    })
+                    }, allowRefresh: true)
                 }
                 .navigationDestination(for: CategoryCards.self) { nav in
                     CardPagerView(cards: nav.cards, selectedID: nav.selectedID) { card in

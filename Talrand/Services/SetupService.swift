@@ -105,10 +105,65 @@ class SetupService {
     @MainActor
     func refetchCards(_ cards: [Card], modelContext: ModelContext) async {
         for card in cards {
-            card.frontImageUrl = ""
-            card.localFrontImagePath = nil
-            card.localBackImagePath = nil
-            await fetchCardData(card: card, modelContext: modelContext)
+            await refetchCard(card, modelContext: modelContext)
+        }
+    }
+
+    /// Self-contained refresh that never blocks on the setup error-resolution
+    /// continuation (that only has a UI driver during initial setup, so reusing
+    /// it here would deadlock the spinner forever). New images are downloaded
+    /// into hand before anything is overwritten, so a failed/slow fetch leaves
+    /// the existing card and its image untouched.
+    @MainActor
+    private func refetchCard(_ card: Card, modelContext: ModelContext) async {
+        do {
+            let scryfallCard = try await ScryfallAPI.shared.fetchCard(scryfallId: card.scryfallId)
+
+            let frontURL = await ScryfallAPI.shared.imageUrl(for: scryfallCard, face: .front) ?? ""
+            let backURL = await ScryfallAPI.shared.imageUrl(for: scryfallCard, face: .back)
+
+            var newFrontPath: String?
+            if !frontURL.isEmpty {
+                newFrontPath = try await imageCache.cacheImage(from: frontURL, filename: "\(card.scryfallId)_front.jpg")
+            }
+
+            let isDualFace = scryfallCard.layout == "transform" || scryfallCard.layout == "modal_dfc"
+            var newBackPath: String?
+            if isDualFace, let backURL {
+                newBackPath = try await imageCache.cacheImage(from: backURL, filename: "\(card.scryfallId)_back.jpg")
+            }
+
+            // Every network op succeeded — now it is safe to commit.
+            card.oracleId = scryfallCard.oracleId ?? ""
+            card.oracleText = scryfallCard.oracleText ?? ""
+            card.manaCost = scryfallCard.manaCost ?? ""
+            card.typeLine = scryfallCard.typeLine ?? card.typeLine
+            card.power = scryfallCard.power
+            card.toughness = scryfallCard.toughness
+            card.colorIdentity = (scryfallCard.colorIdentity ?? []).joined(separator: ",")
+            card.rarity = scryfallCard.rarity
+            card.layout = scryfallCard.layout
+            card.frontImageUrl = frontURL
+            card.backImageUrl = backURL
+            if let newFrontPath { card.localFrontImagePath = newFrontPath }
+            if let newBackPath { card.localBackImagePath = newBackPath }
+
+            if let rulings = try? await ScryfallAPI.shared.fetchRulings(scryfallId: card.scryfallId) {
+                for existing in card.rulings {
+                    modelContext.delete(existing)
+                }
+                card.rulings.removeAll()
+                for ruling in rulings {
+                    let rulingObj = Ruling(date: ruling.publishedAt, source: ruling.source, comment: ruling.comment)
+                    modelContext.insert(rulingObj)
+                    card.rulings.append(rulingObj)
+                }
+            }
+
+            try? modelContext.save()
+        } catch {
+            // Leave the existing card data and cached image intact.
+            print("[refetch] \(card.name) failed: \(error.localizedDescription)")
         }
     }
 

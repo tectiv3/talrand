@@ -20,7 +20,7 @@ struct CardPagerView: View {
     var body: some View {
         TabView(selection: $currentID) {
             ForEach(cards) { card in
-                CardDetailView(card: card, onReplace: { onReplace?(card) })
+                CardDetailView(card: card, onReplace: { onReplace?(card) }, allowRefresh: true)
                     .tag(card.scryfallId)
             }
         }

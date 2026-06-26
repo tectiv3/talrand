@@ -5,6 +5,7 @@ import PhotosUI
 struct CardDetailView: View {
     let card: Card
     var onReplace: (() -> Void)?
+    var allowRefresh: Bool = false
 
     @Environment(\.modelContext) private var modelContext
     @State private var showingBack = false
@@ -19,6 +20,14 @@ struct CardDetailView: View {
     }
 
     var body: some View {
+        if allowRefresh {
+            content.refreshable { await refresh() }
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(spacing: 0) {
                 heroImage
@@ -35,11 +44,12 @@ struct CardDetailView: View {
         .navigationTitle(card.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
-        .refreshable {
-            let service = SetupService()
-            await service.refetchCards([card], modelContext: modelContext)
-            cardImage = await loadCurrentImage()
-        }
+    }
+
+    private func refresh() async {
+        let service = SetupService()
+        await service.refetchCards([card], modelContext: modelContext)
+        cardImage = await loadCurrentImage()
     }
 
     // MARK: - Hero Image

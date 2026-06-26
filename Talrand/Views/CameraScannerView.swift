@@ -84,10 +84,11 @@ struct CameraScannerView: View {
             guard let result else { return }
             processCandidates(result)
         }
-        .onChange(of: cameraService.imageMatchResult) { _, card in
-            guard let card else { return }
+        .onChange(of: cameraService.imageMatchResult) { _, scryfallId in
+            guard let scryfallId else { return }
             cameraService.imageMatchResult = nil
             guard Date.now.timeIntervalSince(lastMatchTime) >= matchCooldown else { return }
+            guard let card = fetchCard(scryfallId: scryfallId) else { return }
             lastMatchTime = .now
             matchedCardName = card.name
             Task {
@@ -112,49 +113,40 @@ struct CameraScannerView: View {
 
     private var scanOverlay: some View {
         GeometryReader { geometry in
-            let guideHeight = geometry.size.height * 0.25
+            // Standard MTG card aspect (2.5 : 3.5). The detector finds the card
+            // anywhere in frame, so the guide just helps the user fit the whole
+            // card — not cram it into a strip.
+            let guideWidth = min(geometry.size.width * 0.82, geometry.size.height * 0.62 * (2.5 / 3.5))
+            let guideHeight = guideWidth * (3.5 / 2.5)
 
-            VStack(spacing: 0) {
-                Rectangle()
-                    .fill(.black.opacity(0.5))
-                    .frame(height: geometry.size.height - guideHeight)
-
-                ZStack {
-                    Rectangle()
-                        .fill(.clear)
-
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(.white, lineWidth: 2)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .opacity(isPulsing ? 0.5 : 1.0)
-                        .animation(
-                            .easeInOut(duration: 1.2).repeatForever(autoreverses: true),
-                            value: isPulsing
-                        )
-                        .onAppear { isPulsing = true }
-
-                    VStack(spacing: 6) {
-                        if let feedback = cameraService.scanFeedback {
-                            Text(feedback)
-                                .font(.caption)
-                                .foregroundStyle(MTGTheme.textPrimary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .background(MTGTheme.cardBg.opacity(0.85), in: Capsule())
-                        }
-
-                        Text("Point camera at card")
-                            .font(.caption)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.black.opacity(0.6), in: Capsule())
-                    }
-                    .offset(y: -guideHeight / 2 + 20)
+            VStack(spacing: 14) {
+                if let feedback = cameraService.scanFeedback {
+                    Text(feedback)
+                        .font(.caption)
+                        .foregroundStyle(MTGTheme.textPrimary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(MTGTheme.cardBg.opacity(0.85), in: Capsule())
                 }
-                .frame(height: guideHeight)
+
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(.white, lineWidth: 2)
+                    .frame(width: guideWidth, height: guideHeight)
+                    .opacity(isPulsing ? 0.5 : 1.0)
+                    .animation(
+                        .easeInOut(duration: 1.2).repeatForever(autoreverses: true),
+                        value: isPulsing
+                    )
+                    .onAppear { isPulsing = true }
+
+                Text("Fit the whole card in the frame")
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.black.opacity(0.6), in: Capsule())
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .ignoresSafeArea()
     }
@@ -164,7 +156,19 @@ struct CameraScannerView: View {
     private var controlsOverlay: some View {
         VStack {
             HStack {
+                Button {
+                    cameraService.toggleTorch()
+                } label: {
+                    Image(systemName: cameraService.torchOn ? "flashlight.on.fill" : "flashlight.off.fill")
+                        .font(.title3)
+                        .padding(10)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .padding(.leading, 16)
+                .padding(.top, 8)
+
                 Spacer()
+
                 if let onBrowseDeck {
                     Button {
                         onBrowseDeck()
@@ -411,6 +415,16 @@ struct CameraScannerView: View {
         var descriptor = FetchDescriptor<Card>(
             predicate: #Predicate<Card> { card in
                 card.name == name
+            }
+        )
+        descriptor.fetchLimit = 1
+        return (try? modelContext.fetch(descriptor))?.first
+    }
+
+    private func fetchCard(scryfallId: String) -> Card? {
+        var descriptor = FetchDescriptor<Card>(
+            predicate: #Predicate<Card> { card in
+                card.scryfallId == scryfallId
             }
         )
         descriptor.fetchLimit = 1

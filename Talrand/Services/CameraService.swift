@@ -13,7 +13,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     var isRunning = false
     var permissionGranted = false
     var permissionDenied = false
-    var imageMatchResult: Card?
+    var imageMatchResult: String?
     var scanFeedback: String?
     var torchOn = false
     let captureSession = AVCaptureSession()
@@ -21,6 +21,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     let cardMatcher = CardImageMatcher()
     private let processingQueue = DispatchQueue(label: "com.talrand.camera.processing")
     private var isConfigured = false
+    private var activeDevice: AVCaptureDevice?
     private var lastProcessedTime: CFAbsoluteTime = 0
     private let minimumFrameInterval: CFAbsoluteTime = 0.2
     private var cachedSetCodes: [String] = []
@@ -29,8 +30,14 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var consecutiveMatchCount = 0
     private let requiredConsecutiveMatches = 2
     private var cardNameMap: [String: String] = [:]
-    private var cardMap: [String: Card] = [:]
     private let ciContext = CIContext()
+    // Back-camera sample buffers arrive in the sensor's native landscape
+    // orientation. In the portrait scanner UI the card is rotated 90° CW
+    // relative to "upright", so every Vision request must be told this or
+    // rectangle detection rejects the card (wrong aspect ratio) and OCR /
+    // feature-print matching run on sideways pixels → garbage.
+    private let imageOrientation: CGImagePropertyOrientation = .right
+    private let verbose = true
     private var lastFeedbackTime: CFAbsoluteTime = 0
     private var lastVisionMatchId: String?
     private var visionConsecutiveCount = 0
@@ -57,18 +64,17 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     }
 
     func loadCardReferences(_ cards: [Card]) {
-        let cardData = cards.map { (scryfallId: $0.scryfallId, name: $0.name, card: $0) }
+        let refData = cards.map {
+            CardReferenceData(scryfallId: $0.scryfallId, name: $0.name, localFrontImagePath: $0.localFrontImagePath)
+        }
         processingQueue.async { [weak self] in
             guard let self else { return }
             var nameMap: [String: String] = [:]
-            var objMap: [String: Card] = [:]
-            for item in cardData {
+            for item in refData {
                 nameMap[item.scryfallId] = item.name
-                objMap[item.scryfallId] = item.card
             }
             self.cardNameMap = nameMap
-            self.cardMap = objMap
-            self.cardMatcher.loadReferences(cards)
+            self.cardMatcher.loadReferences(refData)
         }
     }
 
@@ -99,6 +105,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             return
         }
         captureSession.addInput(input)
+        activeDevice = camera
 
         let output = AVCaptureVideoDataOutput()
         output.setSampleBufferDelegate(self, queue: processingQueue)
@@ -122,15 +129,36 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     func stopSession() {
         guard isRunning else { return }
         processingQueue.async { [weak self] in
-            self?.captureSession.stopRunning()
+            guard let self else { return }
+            if let device = self.activeDevice, device.hasTorch, device.isTorchActive {
+                try? device.lockForConfiguration()
+                device.torchMode = .off
+                device.unlockForConfiguration()
+            }
+            self.captureSession.stopRunning()
             Task { @MainActor in
-                self?.isRunning = false
+                self.isRunning = false
+                self.torchOn = false
             }
         }
     }
 
+    func toggleTorch() {
+        processingQueue.async { [weak self] in
+            guard let self,
+                  let device = self.activeDevice,
+                  device.hasTorch else { return }
+            do {
+                try device.lockForConfiguration()
+                let on = !device.isTorchActive
+                device.torchMode = on ? .on : .off
+                device.unlockForConfiguration()
+                Task { @MainActor in self.torchOn = on }
+            } catch {}
+        }
+    }
+
     private func preferredCamera() -> AVCaptureDevice? {
-        // Virtual devices auto-switch to ultra-wide for macro when close to subject
         let preferredTypes: [AVCaptureDevice.DeviceType] = [
             .builtInTripleCamera,
             .builtInDualWideCamera,
@@ -173,44 +201,52 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         }
 
         if cardMatcher.isReady {
-            if let match = cardMatcher.findBestMatch(in: cardImage) {
-                if match.scryfallId == lastVisionMatchId {
-                    visionConsecutiveCount += 1
+            if let match = cardMatcher.findMatch(in: cardImage) {
+                if verbose {
+                    let name = cardNameMap[match.scryfallId] ?? match.scryfallId
+                    print("[scan] best match: \(name) d=\(String(format: "%.1f", match.distance)) strong=\(match.isStrong)")
+                }
+                if match.isStrong {
+                    if match.scryfallId == lastVisionMatchId {
+                        visionConsecutiveCount += 1
+                    } else {
+                        lastVisionMatchId = match.scryfallId
+                        visionConsecutiveCount = 1
+                    }
+
+                    if visionConsecutiveCount >= requiredVisionConsecutive {
+                        visionConsecutiveCount = 0
+                        lastVisionMatchId = nil
+                        lastNearMatchId = nil
+                        nearConsecutiveCount = 0
+                        Task { @MainActor in
+                            self.scanFeedback = nil
+                            self.imageMatchResult = match.scryfallId
+                        }
+                        return
+                    }
                 } else {
-                    lastVisionMatchId = match.scryfallId
-                    visionConsecutiveCount = 1
+                    lastVisionMatchId = nil
+                    visionConsecutiveCount = 0
                 }
 
-                if visionConsecutiveCount >= requiredVisionConsecutive,
-                   let card = cardMap[match.scryfallId] {
-                    visionConsecutiveCount = 0
-                    lastVisionMatchId = nil
-                    Task { @MainActor in
-                        self.scanFeedback = nil
-                        self.imageMatchResult = card
+                if let name = cardNameMap[match.scryfallId] {
+                    if match.scryfallId == lastNearMatchId {
+                        nearConsecutiveCount += 1
+                    } else {
+                        lastNearMatchId = match.scryfallId
+                        nearConsecutiveCount = 1
                     }
-                    return
+                    if nearConsecutiveCount >= 2, now - lastFeedbackTime > 1.0 {
+                        lastFeedbackTime = now
+                        Task { @MainActor in
+                            self.scanFeedback = "Maybe: \(name)? (d=\(String(format: "%.1f", match.distance)))"
+                        }
+                    }
                 }
             } else {
                 lastVisionMatchId = nil
                 visionConsecutiveCount = 0
-            }
-
-            if let nearMatch = cardMatcher.findNearMatch(in: cardImage),
-               let name = cardNameMap[nearMatch.scryfallId] {
-                if nearMatch.scryfallId == lastNearMatchId {
-                    nearConsecutiveCount += 1
-                } else {
-                    lastNearMatchId = nearMatch.scryfallId
-                    nearConsecutiveCount = 1
-                }
-                if nearConsecutiveCount >= 2, now - lastFeedbackTime > 1.0 {
-                    lastFeedbackTime = now
-                    Task { @MainActor in
-                        self.scanFeedback = "Maybe: \(name)?"
-                    }
-                }
-            } else {
                 lastNearMatchId = nil
                 nearConsecutiveCount = 0
                 if now - lastFeedbackTime > 2.0 {
@@ -226,7 +262,9 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             self?.handleRecognitionResults(request.results as? [VNRecognizedTextObservation])
         }
         request.recognitionLevel = .accurate
+        // Cropped card is upright; collector number sits in the bottom band.
         request.regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: 0.25)
+        request.recognitionLanguages = ["ja-JP", "en-US"]
         request.customWords = cachedSetCodes
         request.usesLanguageCorrection = false
         request.minimumTextHeight = 0.02
@@ -238,7 +276,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     // MARK: - Card Detection
 
     private func detectAndCropCard(from pixelBuffer: CVPixelBuffer) -> CGImage? {
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: imageOrientation, options: [:])
         let request = VNDetectRectanglesRequest()
         request.minimumAspectRatio = 0.5
         request.maximumAspectRatio = 0.85
@@ -246,18 +284,30 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         request.minimumConfidence = 0.8
         request.maximumObservations = 1
 
-        try? handler.perform([request])
-        guard let rect = request.results?.first else { return nil }
+        do {
+            try handler.perform([request])
+        } catch {
+            if verbose { print("[scan] rectangle detection error: \(error.localizedDescription)") }
+            return nil
+        }
+        guard let rect = request.results?.first else {
+            if verbose { print("[scan] no card rectangle detected") }
+            return nil
+        }
 
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        let w = ciImage.extent.width
-        let h = ciImage.extent.height
+        // Orient the source to the SAME space the rectangle coordinates live in,
+        // otherwise the perspective corners are mapped against rotated extents.
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer).oriented(imageOrientation)
+        let ext = ciImage.extent
+        func point(_ p: CGPoint) -> CIVector {
+            CIVector(cgPoint: CGPoint(x: ext.minX + p.x * ext.width, y: ext.minY + p.y * ext.height))
+        }
 
         let corrected = ciImage.applyingFilter("CIPerspectiveCorrection", parameters: [
-            "inputTopLeft": CIVector(cgPoint: CGPoint(x: rect.topLeft.x * w, y: rect.topLeft.y * h)),
-            "inputTopRight": CIVector(cgPoint: CGPoint(x: rect.topRight.x * w, y: rect.topRight.y * h)),
-            "inputBottomLeft": CIVector(cgPoint: CGPoint(x: rect.bottomLeft.x * w, y: rect.bottomLeft.y * h)),
-            "inputBottomRight": CIVector(cgPoint: CGPoint(x: rect.bottomRight.x * w, y: rect.bottomRight.y * h)),
+            "inputTopLeft": point(rect.topLeft),
+            "inputTopRight": point(rect.topRight),
+            "inputBottomLeft": point(rect.bottomLeft),
+            "inputBottomRight": point(rect.bottomRight),
         ])
 
         return ciContext.createCGImage(corrected, from: corrected.extent)
@@ -272,6 +322,8 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         let ocrText = confident
             .compactMap { $0.topCandidates(1).first?.string }
             .joined(separator: " ")
+
+        if verbose { print("[scan] OCR: \(ocrText)") }
 
         let candidates = CollectorNumberParser.parse(ocrText: ocrText, knownSetCodes: knownSetCodesSet)
         guard let topCandidate = candidates.first else {
