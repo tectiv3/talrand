@@ -286,12 +286,20 @@ class CardSwapService {
         if parts.count == 2,
            let set = parts.first, set.count <= 5, set.allSatisfy(\.isLetter),
            let number = parts.last, number.first?.isNumber == true {
-            return "e:\(set.lowercased()) cn:\(number)"
+            return "e:\(set.lowercased()) cn:\(unpad(number))"
         }
         if !trimmed.isEmpty, trimmed.allSatisfy(\.isNumber) {
-            return "cn:\(trimmed)"
+            return "cn:\(unpad(trimmed))"
         }
         return trimmed
+    }
+
+    // Scryfall stores collector numbers unpadded ("91"); strip leading zeros so a
+    // typed "091"/"0069" still matches. Non-numeric numbers (suffixed, compound, ★)
+    // are left intact.
+    private static func unpad(_ n: String) -> String {
+        guard n.allSatisfy(\.isNumber), let v = Int(n) else { return n }
+        return String(v)
     }
 
     // MARK: - Private Helpers
