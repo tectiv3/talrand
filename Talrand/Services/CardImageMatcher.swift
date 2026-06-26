@@ -5,8 +5,8 @@ class CardImageMatcher {
     private var references: [(scryfallId: String, featurePrint: VNFeaturePrintObservation)] = []
     private(set) var isReady = false
     private let imageCache = ImageCacheService()
-    private let strongThreshold: Float = 18.0
-    private let nearThreshold: Float = 25.0
+    private let strongThreshold: Float = 12.0
+    private let nearThreshold: Float = 18.0
 
     func loadReferences(_ cards: [Card]) {
         var prints: [(scryfallId: String, featurePrint: VNFeaturePrintObservation)] = []

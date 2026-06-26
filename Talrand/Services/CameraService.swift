@@ -29,6 +29,11 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var cardNameMap: [String: String] = [:]
     private var cardMap: [String: Card] = [:]
     private var lastFeedbackTime: CFAbsoluteTime = 0
+    private var lastVisionMatchId: String?
+    private var visionConsecutiveCount = 0
+    private let requiredVisionConsecutive = 3
+    private var lastNearMatchId: String?
+    private var nearConsecutiveCount = 0
 
     func checkPermission() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -151,27 +156,51 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         if cardMatcher.isReady {
-            if let match = cardMatcher.findBestMatch(in: pixelBuffer),
-               let card = cardMap[match.scryfallId] {
-                Task { @MainActor in
-                    self.scanFeedback = nil
-                    self.imageMatchResult = card
+            if let match = cardMatcher.findBestMatch(in: pixelBuffer) {
+                if match.scryfallId == lastVisionMatchId {
+                    visionConsecutiveCount += 1
+                } else {
+                    lastVisionMatchId = match.scryfallId
+                    visionConsecutiveCount = 1
                 }
-                return
+
+                if visionConsecutiveCount >= requiredVisionConsecutive,
+                   let card = cardMap[match.scryfallId] {
+                    visionConsecutiveCount = 0
+                    lastVisionMatchId = nil
+                    Task { @MainActor in
+                        self.scanFeedback = nil
+                        self.imageMatchResult = card
+                    }
+                    return
+                }
+            } else {
+                lastVisionMatchId = nil
+                visionConsecutiveCount = 0
             }
 
             if let nearMatch = cardMatcher.findNearMatch(in: pixelBuffer),
                let name = cardNameMap[nearMatch.scryfallId] {
-                if now - lastFeedbackTime > 1.0 {
+                if nearMatch.scryfallId == lastNearMatchId {
+                    nearConsecutiveCount += 1
+                } else {
+                    lastNearMatchId = nearMatch.scryfallId
+                    nearConsecutiveCount = 1
+                }
+                if nearConsecutiveCount >= 2, now - lastFeedbackTime > 1.0 {
                     lastFeedbackTime = now
                     Task { @MainActor in
                         self.scanFeedback = "Maybe: \(name)?"
                     }
                 }
-            } else if now - lastFeedbackTime > 2.0 {
-                lastFeedbackTime = now
-                Task { @MainActor in
-                    self.scanFeedback = "Scanning..."
+            } else {
+                lastNearMatchId = nil
+                nearConsecutiveCount = 0
+                if now - lastFeedbackTime > 2.0 {
+                    lastFeedbackTime = now
+                    Task { @MainActor in
+                        self.scanFeedback = "Scanning..."
+                    }
                 }
             }
         }
