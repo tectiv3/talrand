@@ -25,6 +25,9 @@ class Card: Hashable {
     // scanner identify a physical JP card by its title regardless of printing —
     // the reliable path when art differs and there's no printed set code.
     var printedName: String = ""
+    // When this card was last opened from a scan (camera match or the in-scanner
+    // search). Drives the History tab; nil means never scanned.
+    var lastScannedAt: Date? = nil
 
     @Relationship(deleteRule: .cascade)
     var rulings: [Ruling]

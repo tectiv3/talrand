@@ -50,6 +50,12 @@ struct ContentView: View {
                     Label("Scan", systemImage: "camera.viewfinder")
                 }
                 .tag(1)
+
+            HistoryView()
+                .tabItem {
+                    Label("History", systemImage: "clock.arrow.circlepath")
+                }
+                .tag(2)
         }
         .sheet(item: $cardForSwap) { card in
             CardSwapView(oldCard: card, onCompleted: { newCard in
@@ -103,12 +109,20 @@ struct ContentView: View {
         CameraScannerView(
             mode: .lookup,
             onCardMatched: { card in
+                recordScan(card)
                 scannedCard = card
             },
             onBrowseDeck: {
                 selectedTab = 0
             }
         )
+    }
+
+    /// Stamp a scanned card so it surfaces in the History tab (newest-first,
+    /// auto-deduped — a re-scan just refreshes the timestamp).
+    private func recordScan(_ card: Card) {
+        card.lastScannedAt = .now
+        try? modelContext.save()
     }
 }
 
