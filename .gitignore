@@ -7,3 +7,4 @@ DerivedData/
 *.pem
 *.key
 .env*
+scripts/
