@@ -28,15 +28,15 @@ class CardImageMatcher {
         isReady = true
     }
 
-    func findBestMatch(in pixelBuffer: CVPixelBuffer) -> (scryfallId: String, distance: Float)? {
+    func findBestMatch(in image: CGImage) -> (scryfallId: String, distance: Float)? {
         guard isReady, !references.isEmpty else { return nil }
-        guard let queryPrint = generateFeaturePrint(from: pixelBuffer) else { return nil }
+        guard let queryPrint = generateFeaturePrint(from: image) else { return nil }
         return closestMatch(to: queryPrint, threshold: strongThreshold)
     }
 
-    func findNearMatch(in pixelBuffer: CVPixelBuffer) -> (scryfallId: String, distance: Float)? {
+    func findNearMatch(in image: CGImage) -> (scryfallId: String, distance: Float)? {
         guard isReady, !references.isEmpty else { return nil }
-        guard let queryPrint = generateFeaturePrint(from: pixelBuffer) else { return nil }
+        guard let queryPrint = generateFeaturePrint(from: image) else { return nil }
         return closestMatch(to: queryPrint, threshold: nearThreshold)
     }
 

@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import Vision
 
 struct ScanResult: Equatable {
@@ -14,6 +15,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     var permissionDenied = false
     var imageMatchResult: Card?
     var scanFeedback: String?
+    var torchOn = false
     let captureSession = AVCaptureSession()
 
     let cardMatcher = CardImageMatcher()
@@ -28,6 +30,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private let requiredConsecutiveMatches = 2
     private var cardNameMap: [String: String] = [:]
     private var cardMap: [String: Card] = [:]
+    private let ciContext = CIContext()
     private var lastFeedbackTime: CFAbsoluteTime = 0
     private var lastVisionMatchId: String?
     private var visionConsecutiveCount = 0
@@ -155,8 +158,22 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
+        guard let cardImage = detectAndCropCard(from: pixelBuffer) else {
+            lastVisionMatchId = nil
+            visionConsecutiveCount = 0
+            lastNearMatchId = nil
+            nearConsecutiveCount = 0
+            if now - lastFeedbackTime > 2.0 {
+                lastFeedbackTime = now
+                Task { @MainActor in
+                    self.scanFeedback = "Scanning..."
+                }
+            }
+            return
+        }
+
         if cardMatcher.isReady {
-            if let match = cardMatcher.findBestMatch(in: pixelBuffer) {
+            if let match = cardMatcher.findBestMatch(in: cardImage) {
                 if match.scryfallId == lastVisionMatchId {
                     visionConsecutiveCount += 1
                 } else {
@@ -179,7 +196,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 visionConsecutiveCount = 0
             }
 
-            if let nearMatch = cardMatcher.findNearMatch(in: pixelBuffer),
+            if let nearMatch = cardMatcher.findNearMatch(in: cardImage),
                let name = cardNameMap[nearMatch.scryfallId] {
                 if nearMatch.scryfallId == lastNearMatchId {
                     nearConsecutiveCount += 1
@@ -209,14 +226,41 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             self?.handleRecognitionResults(request.results as? [VNRecognizedTextObservation])
         }
         request.recognitionLevel = .accurate
-        // Vision uses bottom-left origin; this captures the bottom 25% of the frame
         request.regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: 0.25)
         request.customWords = cachedSetCodes
         request.usesLanguageCorrection = false
         request.minimumTextHeight = 0.02
 
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+        let handler = VNImageRequestHandler(cgImage: cardImage, options: [:])
         try? handler.perform([request])
+    }
+
+    // MARK: - Card Detection
+
+    private func detectAndCropCard(from pixelBuffer: CVPixelBuffer) -> CGImage? {
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+        let request = VNDetectRectanglesRequest()
+        request.minimumAspectRatio = 0.5
+        request.maximumAspectRatio = 0.85
+        request.minimumSize = 0.15
+        request.minimumConfidence = 0.8
+        request.maximumObservations = 1
+
+        try? handler.perform([request])
+        guard let rect = request.results?.first else { return nil }
+
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let w = ciImage.extent.width
+        let h = ciImage.extent.height
+
+        let corrected = ciImage.applyingFilter("CIPerspectiveCorrection", parameters: [
+            "inputTopLeft": CIVector(cgPoint: CGPoint(x: rect.topLeft.x * w, y: rect.topLeft.y * h)),
+            "inputTopRight": CIVector(cgPoint: CGPoint(x: rect.topRight.x * w, y: rect.topRight.y * h)),
+            "inputBottomLeft": CIVector(cgPoint: CGPoint(x: rect.bottomLeft.x * w, y: rect.bottomLeft.y * h)),
+            "inputBottomRight": CIVector(cgPoint: CGPoint(x: rect.bottomRight.x * w, y: rect.bottomRight.y * h)),
+        ])
+
+        return ciContext.createCGImage(corrected, from: corrected.extent)
     }
 
     private func handleRecognitionResults(_ observations: [VNRecognizedTextObservation]?) {
