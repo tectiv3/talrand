@@ -48,6 +48,7 @@ targets:
     # fixture card photos through the real crop -> OCR -> parse logic.
     sources:
       - TalrandTests
+      - path: Talrand/Services/BackupCodec.swift
       - path: Talrand/Services/ScanOCR.swift
       - path: Talrand/Services/CollectorNumberParser.swift
       - path: Talrand/Services/DeckResolver.swift
