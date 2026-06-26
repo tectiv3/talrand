@@ -45,6 +45,7 @@ struct CameraScannerView: View {
 
     @State private var matchedCardName: String?
     @State private var showNoMatch = false
+    @State private var noMatchStreak = 0
     @State private var lastMatchTime: Date = .distantPast
     @State private var isPulsing = false
     @State private var showingSearch = false
@@ -358,6 +359,7 @@ struct CameraScannerView: View {
         for candidate in candidates {
             if let card = findCard(for: candidate, type: result.cardType) {
                 lastMatchTime = .now
+                noMatchStreak = 0
                 matchedCardName = card.name
 
                 Task {
@@ -379,7 +381,11 @@ struct CameraScannerView: View {
             }
         }
 
-        if !showNoMatch {
+        // Only surface "not in deck" once an unresolved read persists — a single
+        // garbled OCR frame shouldn't flash it while feature-print is still
+        // homing in on the right card.
+        noMatchStreak += 1
+        if noMatchStreak >= 4, !showNoMatch {
             showNoMatch = true
             Task {
                 try? await Task.sleep(for: .seconds(2))
@@ -399,6 +405,7 @@ struct CameraScannerView: View {
         // that number). Accept only when it resolves to exactly one — using the
         // OCR'd card type to break ties — otherwise refuse rather than guess.
         let cards = findCards(collectorNumber: candidate.collectorNumber)
+        print("[match] #\(candidate.collectorNumber) type=\(type ?? "?") -> \(cards.map { "\($0.name)|\($0.typeLine)" })")
         if cards.count == 1 { return cards.first }
         guard cards.count > 1 else { return nil }
 

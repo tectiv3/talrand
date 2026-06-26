@@ -192,7 +192,9 @@ actor ScryfallAPI {
         guard let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             throw ScryfallError.apiError("Invalid query string")
         }
-        let url = "\(baseURL)/cards/search?q=\(encodedQuery)"
+        // unique=prints so every printing (art) shows, letting the caller pick
+        // the one matching their physical card; newest first.
+        let url = "\(baseURL)/cards/search?q=\(encodedQuery)&unique=prints&order=released&dir=desc"
         let result: ScryfallSearchResult = try await request(url: url)
         return result.data
     }

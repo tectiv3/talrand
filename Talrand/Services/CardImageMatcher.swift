@@ -18,14 +18,15 @@ class CardImageMatcher {
     private var references: [(scryfallId: String, featurePrint: VNFeaturePrintObservation)] = []
     private(set) var isReady = false
     private let imageCache = ImageCacheService()
-    // Measured on-device: correct matches land ~0.6–0.85, wrong cards / empty
-    // table cluster ~0.9–1.0 with the runner-up nearly tied.
-    private let strongThreshold: Float = 0.86
+    // Measured on-device: a correct match is BOTH close and clearly ahead of the
+    // runner-up. A wrong card (different printing → nearest is some other blue
+    // instant) lands ~0.85 with a thin gap (~0.05). Keeping the gap wide is what
+    // separates a real borderline match (An Offer, gap ~0.11) from a false one
+    // (Counterspell→Negate, gap ~0.05). Cards that can't clear this fall back to
+    // the collector-code path rather than risk a wrong auto-match.
+    private let strongThreshold: Float = 0.80
     private let nearThreshold: Float = 1.1
-    // The nearest neighbour must also clearly beat the runner-up. A ratio test
-    // demanded too wide a margin for cards with similar (dark blue) art; an
-    // absolute gap accepts those while the table still clusters with ~0 gap.
-    private let minRunnerUpGap: Float = 0.05
+    private let minRunnerUpGap: Float = 0.07
 
     func loadReferences(_ cards: [CardReferenceData]) {
         var prints: [(scryfallId: String, featurePrint: VNFeaturePrintObservation)] = []

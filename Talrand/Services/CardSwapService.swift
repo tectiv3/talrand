@@ -273,7 +273,25 @@ class CardSwapService {
     // MARK: - Search
 
     func searchCards(query: String) async throws -> [ScryfallCard] {
-        try await ScryfallAPI.shared.searchCards(query: query)
+        try await ScryfallAPI.shared.searchCards(query: Self.scryfallQuery(from: query))
+    }
+
+    /// Turns a user's input into a Scryfall query. Recognises collector codes —
+    /// "MMQ 69", "MMQ/69", "MMQ #69" → set + number; a bare number → cn:; and
+    /// anything else is treated as a card name.
+    static func scryfallQuery(from input: String) -> String {
+        let trimmed = input.trimmingCharacters(in: .whitespaces)
+        let parts = trimmed.split(whereSeparator: { " #/".contains($0) }).map(String.init)
+
+        if parts.count == 2,
+           let set = parts.first, set.count <= 5, set.allSatisfy(\.isLetter),
+           let number = parts.last, number.first?.isNumber == true {
+            return "e:\(set.lowercased()) cn:\(number)"
+        }
+        if !trimmed.isEmpty, trimmed.allSatisfy(\.isNumber) {
+            return "cn:\(trimmed)"
+        }
+        return trimmed
     }
 
     // MARK: - Private Helpers

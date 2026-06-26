@@ -10,6 +10,7 @@ struct CardSwapView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showingSearch = false
+    @FocusState private var searchFieldFocused: Bool
     @State private var searchQuery = ""
     @State private var searchResults: [ScryfallCard] = []
     @State private var isSearching = false
@@ -117,9 +118,10 @@ struct CardSwapView: View {
     private var searchView: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                TextField("Card name", text: $searchQuery)
+                TextField("Name or code (e.g. MMQ 69)", text: $searchQuery)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
+                    .focused($searchFieldFocused)
                     .onSubmit { performSearch() }
 
                 Button("Search") { performSearch() }
@@ -127,6 +129,9 @@ struct CardSwapView: View {
                     .disabled(searchQuery.trimmingCharacters(in: .whitespaces).isEmpty || isSearching)
             }
             .padding()
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { searchFieldFocused = true }
+            }
 
             if isSearching {
                 ProgressView("Searching...")

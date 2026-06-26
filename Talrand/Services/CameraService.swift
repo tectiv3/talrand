@@ -346,16 +346,18 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     /// Scryfall type keyword cached for the collector-number disambiguation.
     private func recognizeCardType(in image: CGImage) {
         let h = Double(image.height)
-        let rect = CGRect(x: 0, y: Int(h * 0.52), width: image.width, height: Int(h * 0.12))
+        let rect = CGRect(x: 0, y: Int(h * 0.50), width: image.width, height: Int(h * 0.16))
         guard let cropped = image.cropping(to: rect) else { return }
 
         let request = VNRecognizeTextRequest { [weak self] request, _ in
             let text = (request.results as? [VNRecognizedTextObservation])?
                 .compactMap { $0.topCandidates(1).first?.string }
                 .joined(separator: " ") ?? ""
-            self?.lastDetectedType = CardTypeParser.parse(text)
+            let type = CardTypeParser.parse(text)
+            if type != nil { self?.lastDetectedType = type }
         }
-        request.recognitionLevel = .fast
+        // Japanese type lines ("インスタント") need .accurate; .fast is Latin-only.
+        request.recognitionLevel = .accurate
         request.recognitionLanguages = ["ja-JP", "en-US"]
         try? VNImageRequestHandler(cgImage: cropped, options: [:]).perform([request])
     }
