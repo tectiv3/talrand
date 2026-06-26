@@ -356,7 +356,7 @@ struct CameraScannerView: View {
         guard Date.now.timeIntervalSince(lastMatchTime) >= matchCooldown else { return }
 
         for candidate in candidates {
-            if let card = findCard(for: candidate) {
+            if let card = findCard(for: candidate, type: result.cardType) {
                 lastMatchTime = .now
                 matchedCardName = card.name
 
@@ -388,17 +388,25 @@ struct CameraScannerView: View {
         }
     }
 
-    private func findCard(for candidate: CollectorNumberCandidate) -> Card? {
-        let cardName: String?
-
-        if let setCode = candidate.setCode {
-            cardName = findCardName(setCode: setCode, collectorNumber: candidate.collectorNumber)
-        } else {
-            cardName = findCardName(collectorNumber: candidate.collectorNumber)
+    private func findCard(for candidate: CollectorNumberCandidate, type: String?) -> Card? {
+        // Set code + number is unique — trust it directly.
+        if let setCode = candidate.setCode,
+           let name = findCardName(setCode: setCode, collectorNumber: candidate.collectorNumber) {
+            return fetchCard(named: name)
         }
 
-        guard let name = cardName else { return nil }
-        return fetchCard(named: name)
+        // Number alone can map to several deck cards (each has a printing with
+        // that number). Accept only when it resolves to exactly one — using the
+        // OCR'd card type to break ties — otherwise refuse rather than guess.
+        let cards = findCards(collectorNumber: candidate.collectorNumber)
+        if cards.count == 1 { return cards.first }
+        guard cards.count > 1 else { return nil }
+
+        if let type {
+            let matched = cards.filter { $0.typeLine.localizedCaseInsensitiveContains(type) }
+            if matched.count == 1 { return matched.first }
+        }
+        return nil
     }
 
     private func findCardName(setCode: String, collectorNumber: String) -> String? {
@@ -411,14 +419,14 @@ struct CameraScannerView: View {
         return (try? modelContext.fetch(descriptor))?.first?.cardName
     }
 
-    private func findCardName(collectorNumber: String) -> String? {
-        var descriptor = FetchDescriptor<CollectorNumberEntry>(
+    private func findCards(collectorNumber: String) -> [Card] {
+        let descriptor = FetchDescriptor<CollectorNumberEntry>(
             predicate: #Predicate<CollectorNumberEntry> { entry in
                 entry.collectorNumber == collectorNumber
             }
         )
-        descriptor.fetchLimit = 1
-        return (try? modelContext.fetch(descriptor))?.first?.cardName
+        let names = Set((try? modelContext.fetch(descriptor))?.map(\.cardName) ?? [])
+        return names.compactMap { fetchCard(named: $0) }
     }
 
     private func fetchCard(named name: String) -> Card? {

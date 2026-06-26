@@ -6,6 +6,7 @@ import Vision
 struct ScanResult: Equatable {
     let ocrText: String
     let candidates: [CollectorNumberCandidate]
+    let cardType: String?
 }
 
 @Observable
@@ -46,6 +47,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var lastDebugDumpTime: CFAbsoluteTime = 0
     private var lastStripDumpTime: CFAbsoluteTime = 0
     private var lastOcrTime: CFAbsoluteTime = 0
+    private var lastDetectedType: String?
     // OCR on the upscaled strip is expensive; running it every frame starves the
     // faster feature-print path. The code doesn't change frame-to-frame.
     private let ocrInterval: CFAbsoluteTime = 0.35
@@ -291,6 +293,11 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         // boost contrast, then OCR that as a full image.
         guard now - lastOcrTime >= ocrInterval else { return }
         lastOcrTime = now
+
+        // Read the type line first (sync) so it's available as a tiebreaker when
+        // the collector number below resolves to more than one deck card.
+        recognizeCardType(in: cardImage)
+
         guard let strip = collectorStrip(from: cardImage) else { return }
 
         let request = VNRecognizeTextRequest { [weak self] request, _ in
@@ -308,6 +315,9 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     /// Bottom strip of the card, upscaled 3× and contrast-boosted to grayscale so
     /// Vision can read the small set code + collector number.
     private func collectorStrip(from image: CGImage) -> CGImage? {
+        // Full width: the collector number is bottom-LEFT on modern cards but
+        // bottom-RIGHT on pre-2014 cards. The parser's denominator guard handles
+        // the power/toughness "4/4" noise, so we don't need to crop it out.
         let stripHeight = Int(Double(image.height) * 0.16)
         let rect = CGRect(x: 0, y: image.height - stripHeight, width: image.width, height: stripHeight)
         guard let cropped = image.cropping(to: rect) else { return nil }
@@ -330,6 +340,24 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             saveDebugStrip(result)
         }
         return result
+    }
+
+    /// The type line sits just below the art (~52–64% down). Read it into a
+    /// Scryfall type keyword cached for the collector-number disambiguation.
+    private func recognizeCardType(in image: CGImage) {
+        let h = Double(image.height)
+        let rect = CGRect(x: 0, y: Int(h * 0.52), width: image.width, height: Int(h * 0.12))
+        guard let cropped = image.cropping(to: rect) else { return }
+
+        let request = VNRecognizeTextRequest { [weak self] request, _ in
+            let text = (request.results as? [VNRecognizedTextObservation])?
+                .compactMap { $0.topCandidates(1).first?.string }
+                .joined(separator: " ") ?? ""
+            self?.lastDetectedType = CardTypeParser.parse(text)
+        }
+        request.recognitionLevel = .fast
+        request.recognitionLanguages = ["ja-JP", "en-US"]
+        try? VNImageRequestHandler(cgImage: cropped, options: [:]).perform([request])
     }
 
     // MARK: - Debug
@@ -392,7 +420,9 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private func handleRecognitionResults(_ observations: [VNRecognizedTextObservation]?) {
         guard let observations else { return }
 
-        let confident = observations.filter { $0.confidence >= 0.5 }
+        // Small low-contrast collector text often scores below 0.5; the parser
+        // is strict enough that a looser confidence floor won't add false codes.
+        let confident = observations.filter { $0.confidence >= 0.3 }
         guard !confident.isEmpty else { return }
 
         let ocrText = confident
@@ -404,7 +434,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         let candidates = CollectorNumberParser.parse(ocrText: ocrText, knownSetCodes: knownSetCodesSet)
         if verbose {
             let parsed = candidates.map { "\($0.setCode ?? "?")#\($0.collectorNumber)" }.joined(separator: ", ")
-            print("[scan] candidates: [\(parsed)]")
+            print("[scan] candidates: [\(parsed)] type=\(lastDetectedType ?? "?")")
         }
         guard let topCandidate = candidates.first else {
             lastCandidate = nil
@@ -422,7 +452,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         guard consecutiveMatchCount >= requiredConsecutiveMatches else { return }
 
         Task { @MainActor in
-            self.lastScanResult = ScanResult(ocrText: ocrText, candidates: candidates)
+            self.lastScanResult = ScanResult(ocrText: ocrText, candidates: candidates, cardType: self.lastDetectedType)
         }
     }
 }

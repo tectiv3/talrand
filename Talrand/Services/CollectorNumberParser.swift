@@ -5,6 +5,35 @@ struct CollectorNumberCandidate: Hashable {
     let collectorNumber: String
 }
 
+/// Reads the card's type line (English or Japanese) to a Scryfall type keyword,
+/// used only as a tiebreaker when a collector number maps to several deck cards.
+struct CardTypeParser {
+    private static let japanese: [(jp: String, en: String)] = [
+        ("プレインズウォーカー", "Planeswalker"),
+        ("アーティファクト", "Artifact"),
+        ("エンチャント", "Enchantment"),
+        ("インスタント", "Instant"),
+        ("クリーチャー", "Creature"),
+        ("ソーサリー", "Sorcery"),
+        ("バトル", "Battle"),
+        ("土地", "Land"),
+    ]
+    private static let english = [
+        "Planeswalker", "Artifact", "Enchantment", "Instant",
+        "Creature", "Sorcery", "Battle", "Land",
+    ]
+
+    static func parse(_ text: String) -> String? {
+        for type in english where text.localizedCaseInsensitiveContains(type) {
+            return type
+        }
+        for entry in japanese where text.contains(entry.jp) {
+            return entry.en
+        }
+        return nil
+    }
+}
+
 struct CollectorNumberParser {
 
     static func parse(ocrText: String, knownSetCodes: Set<String> = []) -> [CollectorNumberCandidate] {
