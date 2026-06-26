@@ -8,3 +8,5 @@ DerivedData/
 *.key
 .env*
 scripts/
+Local.xcconfig
+Talrand.xcodeproj/

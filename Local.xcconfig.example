@@ -1,0 +1,3 @@
+// Template for machine-local signing. Copy to Local.xcconfig (git-ignored) and
+// set your Apple Developer team id, then run `make generate`.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
