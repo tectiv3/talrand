@@ -149,4 +149,73 @@ final class ScannerRegressionTests: XCTestCase {
         XCTAssertTrue(names.contains("Docent of Perfection"), "front-face name not indexed: \(names)")
         XCTAssertTrue(names.contains("完成態の講師"), "printed name not indexed: \(names)")
     }
+
+    // MARK: - End-to-end deck resolution (DeckResolver + bundled printings)
+
+    private struct CardInfo: Equatable, Decodable {
+        let scryfallId: String
+        let name: String
+        let typeLine: String
+        // present in the snapshot but unused here
+        let printedName: String?
+    }
+    private struct DeckIndex: Decodable {
+        let cards: [CardInfo]
+        struct Printing: Decodable { let setCode: String; let collectorNumber: String; let cardName: String }
+        let printings: [Printing]
+    }
+
+    /// A DeckResolver wired to the bundled all-printings snapshot — the same
+    /// decision logic the live scanner runs, fed the real deck's printing data.
+    private lazy var deckResolver: DeckResolver<CardInfo> = {
+        let url = Bundle(for: Self.self).url(forResource: "deck_index", withExtension: "json")!
+        let index = try! JSONDecoder().decode(DeckIndex.self, from: Data(contentsOf: url))
+        let byName = Dictionary(index.cards.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        var bySetNum: [String: String] = [:]
+        var byNumber: [String: Set<String>] = [:]
+        for p in index.printings {
+            bySetNum["\(p.setCode)|\(p.collectorNumber)"] = p.cardName
+            byNumber[p.collectorNumber, default: []].insert(p.cardName)
+        }
+        return DeckResolver<CardInfo>(
+            cardNamed: { byName[$0] },
+            nameForSetNumber: { bySetNum["\($0)|\($1)"] },
+            namesForNumber: { byNumber[$0] ?? [] },
+            scryfallId: { $0.scryfallId },
+            typeLine: { $0.typeLine }
+        )
+    }()
+
+    private func num(_ setCode: String?, _ n: String) -> CollectorNumberCandidate {
+        CollectorNumberCandidate(setCode: setCode, collectorNumber: n)
+    }
+
+    /// Deterministic guard: Ravenform's own number (KHM #72) must never resolve
+    /// to Ponder. Resolving to Ravenform or refusing (nil, when the number is
+    /// ambiguous across deck printings) are both safe; landing on Ponder is the
+    /// bug. Independent of OCR — pins the resolver logic.
+    func testResolverRavenformNumberIsNotPonder() {
+        let resolved = deckResolver.resolve(num(nil, "72"), type: "Sorcery", nearestId: nil)
+        XCTAssertNotEqual(resolved?.name, "Ponder",
+                          "Ravenform #72 resolved to Ponder, got \(resolved?.name ?? "nil")")
+    }
+
+    /// A set code + number is unique and trusted directly — Ravenform's own
+    /// KHM #72 must resolve to Ravenform regardless of any bare-number collision.
+    func testResolverSetPlusNumberIsTrusted() {
+        let resolved = deckResolver.resolve(num("khm", "72"), type: nil, nearestId: nil)
+        XCTAssertEqual(resolved?.name, "Ravenform",
+                       "khm #72 should resolve to Ravenform, got \(resolved?.name ?? "nil")")
+    }
+
+    /// End-to-end: scan the physical Japanese Ravenform photo and confirm the
+    /// full OCR -> resolve pipeline never lands on Ponder (the original bug).
+    func testRavenformFixtureDoesNotResolveToPonder() throws {
+        let card = try cardCrop("ravensform")
+        let (text, candidates) = ScanOCR.collectorReadout(in: card, knownSetCodes: [], customWords: [], ciContext: ciContext)
+        let type = ScanOCR.typeReadout(in: card).type
+        let resolved = candidates.lazy.compactMap { self.deckResolver.resolve($0, type: type, nearestId: nil) }.first
+        XCTAssertNotEqual(resolved?.name, "Ponder",
+                          "Ravenform scanned as Ponder! OCR='\(text)' candidates=\(candidates.map(\.collectorNumber)) type=\(type ?? "?")")
+    }
 }

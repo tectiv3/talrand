@@ -21,6 +21,9 @@ struct ContentView: View {
             mainTabView
                 .task {
                     await backfillSideboardIfNeeded(deck: deck)
+                    #if DEBUG
+                    DebugExport.deckIndex(modelContext: modelContext)
+                    #endif
                 }
         } else {
             SetupView()

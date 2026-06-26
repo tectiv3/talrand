@@ -407,34 +407,21 @@ struct CameraScannerView: View {
     }
 
     private func findCard(for candidate: CollectorNumberCandidate, type: String?, nearestId: String?) -> Card? {
-        // Set code + number is unique — trust it directly.
-        if let setCode = candidate.setCode,
-           let name = findCardName(setCode: setCode, collectorNumber: candidate.collectorNumber) {
-            return fetchCard(named: name)
-        }
-
-        // Number alone can map to several deck cards (each has a printing with
-        // that number). Accept only when it resolves to exactly one — otherwise
-        // disambiguate before guessing.
-        let cards = findCards(collectorNumber: candidate.collectorNumber)
-        print("[match] #\(candidate.collectorNumber) type=\(type ?? "?") near=\(nearestId ?? "?") -> \(cards.map { "\($0.name)|\($0.typeLine)" })")
-        if cards.count == 1 { return cards.first }
-        guard cards.count > 1 else { return nil }
-
-        // Fusion: feature-print can't fire on its own for a different-printing
-        // card, but its nearest neighbour still ranks the right card first.
-        // Constraining that hint to the number's candidate set makes it safe
-        // (a free feature-print match previously mis-fired, e.g. Negate).
-        if let nearestId, let hit = cards.first(where: { $0.scryfallId == nearestId }) {
-            return hit
-        }
-
-        // Fall back to the OCR'd card type to break the tie.
-        if let type {
-            let matched = cards.filter { $0.typeLine.localizedCaseInsensitiveContains(type) }
-            if matched.count == 1 { return matched.first }
-        }
-        return nil
+        let resolver = DeckResolver<Card>(
+            cardNamed: { fetchCard(named: $0) },
+            nameForSetNumber: { findCardName(setCode: $0, collectorNumber: $1) },
+            namesForNumber: { number in
+                let descriptor = FetchDescriptor<CollectorNumberEntry>(
+                    predicate: #Predicate<CollectorNumberEntry> { $0.collectorNumber == number }
+                )
+                return Set((try? modelContext.fetch(descriptor))?.map(\.cardName) ?? [])
+            },
+            scryfallId: { $0.scryfallId },
+            typeLine: { $0.typeLine }
+        )
+        let result = resolver.resolve(candidate, type: type, nearestId: nearestId)
+        print("[match] #\(candidate.collectorNumber) type=\(type ?? "?") near=\(nearestId ?? "?") -> \(result?.name ?? "nil")")
+        return result
     }
 
     private func findCardName(setCode: String, collectorNumber: String) -> String? {
@@ -445,16 +432,6 @@ struct CameraScannerView: View {
         )
         descriptor.fetchLimit = 1
         return (try? modelContext.fetch(descriptor))?.first?.cardName
-    }
-
-    private func findCards(collectorNumber: String) -> [Card] {
-        let descriptor = FetchDescriptor<CollectorNumberEntry>(
-            predicate: #Predicate<CollectorNumberEntry> { entry in
-                entry.collectorNumber == collectorNumber
-            }
-        )
-        let names = Set((try? modelContext.fetch(descriptor))?.map(\.cardName) ?? [])
-        return names.compactMap { fetchCard(named: $0) }
     }
 
     private func fetchCard(named name: String) -> Card? {
