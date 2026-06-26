@@ -11,6 +11,7 @@ struct MatchResult {
     let scryfallId: String
     let distance: Float
     let runnerUpDistance: Float
+    let runnerUpId: String?
     let isStrong: Bool
 }
 
@@ -57,6 +58,7 @@ class CardImageMatcher {
         var bestId: String?
         var bestDist: Float = .greatestFiniteMagnitude
         var runnerUpDist: Float = .greatestFiniteMagnitude
+        var runnerUpId: String?
 
         for ref in references {
             var d: Float = 0
@@ -70,17 +72,19 @@ class CardImageMatcher {
                 // printings of the same card would otherwise mask the margin.
                 if ref.scryfallId != bestId {
                     runnerUpDist = bestDist
+                    runnerUpId = bestId
                 }
                 bestDist = d
                 bestId = ref.scryfallId
             } else if d < runnerUpDist, ref.scryfallId != bestId {
                 runnerUpDist = d
+                runnerUpId = ref.scryfallId
             }
         }
 
         guard let id = bestId, bestDist < nearThreshold else { return nil }
         let strong = bestDist < strongThreshold && (runnerUpDist - bestDist) > minRunnerUpGap
-        return MatchResult(scryfallId: id, distance: bestDist, runnerUpDistance: runnerUpDist, isStrong: strong)
+        return MatchResult(scryfallId: id, distance: bestDist, runnerUpDistance: runnerUpDist, runnerUpId: runnerUpId, isStrong: strong)
     }
 
     // MARK: - Private

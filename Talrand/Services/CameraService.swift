@@ -40,11 +40,31 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var consecutiveMatchCount = 0
     private let requiredConsecutiveMatches = 2
     private var cardNameMap: [String: String] = [:]
+    private var cardTypeMap: [String: String] = [:]
     // Normalized title (EN name + JP printed name) → scryfallId, for the
     // title-OCR recognition path.
     private var nameLookup: [(name: String, id: String)] = []
+    // Name votes accumulate within a window (like the feature-print path) instead
+    // of requiring a strict unbroken run, so one unreadable frame doesn't reset
+    // progress toward a confirmed title match.
     private var lastNameMatchId: String?
     private var nameConsecutiveCount = 0
+    private var lastNameVoteTime: CFAbsoluteTime = 0
+    private let nameVoteWindow: CFAbsoluteTime = 1.5
+    // Type-corroboration ("different category" rule) vote state.
+    private var lastTypeMatchId: String?
+    private var typeConsecutiveCount = 0
+    private var lastTypeVoteTime: CFAbsoluteTime = 0
+    private let typeVoteWindow: CFAbsoluteTime = 1.5
+    // Feature-print must be at least this close before a type read is allowed to
+    // confirm it — a totally-lost match (~1.0) can't be rubber-stamped by a lucky
+    // type read.
+    private let typeCorroborationMaxDistance: Float = 0.90
+    // The current frame's feature-print result, captured synchronously so the
+    // OCR stage below can fuse it with the title/type reads.
+    private var frameNearestId: String?
+    private var frameRunnerUpId: String?
+    private var frameNearestDistance: Float = 1.0
     private let ciContext = CIContext()
     // Back-camera sample buffers arrive in the sensor's native landscape
     // orientation. In the portrait scanner UI the card is rotated 90° CW
@@ -99,11 +119,15 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         let names: [(id: String, name: String, printed: String)] = cards.map {
             ($0.scryfallId, $0.name, $0.printedName)
         }
+        let types: [(id: String, type: String)] = cards.map { ($0.scryfallId, $0.typeLine) }
         processingQueue.async { [weak self] in
             guard let self else { return }
             var nameMap: [String: String] = [:]
             for item in names { nameMap[item.id] = item.name }
+            var typeMap: [String: String] = [:]
+            for item in types { typeMap[item.id] = item.type }
             self.cardNameMap = nameMap
+            self.cardTypeMap = typeMap
             self.nameLookup = ScanOCR.nameLookup(for: names)
             self.cardMatcher.loadReferences(refData)
         }
@@ -224,6 +248,11 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             nearConsecutiveCount = 0
             lastNameMatchId = nil
             nameConsecutiveCount = 0
+            lastTypeMatchId = nil
+            typeConsecutiveCount = 0
+            frameNearestId = nil
+            frameRunnerUpId = nil
+            frameNearestDistance = 1.0
             Task { @MainActor in self.nearestMatchId = nil }
             if now - lastFeedbackTime > 2.0 {
                 lastFeedbackTime = now
@@ -242,6 +271,9 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         if cardMatcher.isReady {
             if let match = cardMatcher.findMatch(in: cardImage) {
                 let nearId = match.scryfallId
+                frameNearestId = match.scryfallId
+                frameRunnerUpId = match.runnerUpId
+                frameNearestDistance = match.distance
                 Task { @MainActor in self.nearestMatchId = nearId }
                 if verbose {
                     let name = cardNameMap[match.scryfallId] ?? match.scryfallId
@@ -269,14 +301,7 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                     lastVisionVoteTime = now
 
                     if visionConsecutiveCount >= requiredVisionConsecutive {
-                        visionConsecutiveCount = 0
-                        lastVisionMatchId = nil
-                        lastNearMatchId = nil
-                        nearConsecutiveCount = 0
-                        Task { @MainActor in
-                            self.scanFeedback = nil
-                            self.imageMatchResult = match.scryfallId
-                        }
+                        fire(match.scryfallId, via: .image)
                         return
                     }
                 }
@@ -300,6 +325,9 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 visionConsecutiveCount = 0
                 lastNearMatchId = nil
                 nearConsecutiveCount = 0
+                frameNearestId = nil
+                frameRunnerUpId = nil
+                frameNearestDistance = 1.0
                 Task { @MainActor in self.nearestMatchId = nil }
                 if now - lastFeedbackTime > 2.0 {
                     lastFeedbackTime = now
@@ -321,9 +349,68 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         // the collector number below resolves to more than one deck card.
         recognizeCardType(in: cardImage)
 
-        // Read the title — a confident unique name match is the strongest signal
-        // for the user's foreign cards and fires on its own.
-        recognizeCardName(in: cardImage)
+        // Read the title and fuse it with feature-print. Each signal is weak on a
+        // foreign / different-printing card, but two independent ones agreeing is
+        // strong — so we fire on corroboration rather than waiting for any single
+        // signal to clear a high bar alone.
+        let titleText = ScanOCR.titleText(in: cardImage)
+        let nameId = CardNameMatcher.match(ocrText: titleText, candidates: nameLookup)
+        if let nameId, verbose {
+            print("[name] OCR=\(titleText) -> \(cardNameMap[nameId] ?? nameId)")
+        }
+
+        // (1) Title and feature-print's nearest agree → fire immediately. Two
+        // independent recognitions on the same card; an out-of-deck card can't
+        // produce a name match, so this can't false-fire.
+        if let nameId, nameId == frameNearestId {
+            if verbose { print("[fire] name+art agree -> \(cardNameMap[nameId] ?? nameId)") }
+            fire(nameId, via: .name)
+            return
+        }
+
+        // (2) Title alone, window-voted — a single unreadable frame no longer
+        // resets progress.
+        if let nameId {
+            if nameId == lastNameMatchId, now - lastNameVoteTime < nameVoteWindow {
+                nameConsecutiveCount += 1
+            } else {
+                lastNameMatchId = nameId
+                nameConsecutiveCount = 1
+            }
+            lastNameVoteTime = now
+            if nameConsecutiveCount >= 2 {
+                fire(nameId, via: .name)
+                return
+            }
+        }
+
+        // (3) "Different category" rule: confirm feature-print's nearest with the
+        // OCR'd type, but only when the type actually *discriminates* — the nearest
+        // matches it and the runner-up does NOT. (If both shared the type, e.g.
+        // Counterspell vs Negate are both Instants, the type proves nothing and we
+        // must fall through.) Voted over two frames and distance-guarded for safety.
+        let nearType = frameNearestId.flatMap { cardTypeMap[$0] }
+        let runnerType = frameRunnerUpId.flatMap { cardTypeMap[$0] }
+        if let nearId = frameNearestId, frameNearestDistance < typeCorroborationMaxDistance,
+           let ocrType = lastDetectedType,
+           nearType?.localizedCaseInsensitiveContains(ocrType) == true,
+           runnerType?.localizedCaseInsensitiveContains(ocrType) != true {
+            if nearId == lastTypeMatchId, now - lastTypeVoteTime < typeVoteWindow {
+                typeConsecutiveCount += 1
+            } else {
+                lastTypeMatchId = nearId
+                typeConsecutiveCount = 1
+            }
+            lastTypeVoteTime = now
+            if typeConsecutiveCount >= 2 {
+                if verbose { print("[fire] type corroboration -> \(cardNameMap[nearId] ?? nearId) type=\(ocrType)") }
+                fire(nearId, via: .image)
+                return
+            }
+        } else {
+            lastTypeMatchId = nil
+            typeConsecutiveCount = 0
+        }
 
         if verbose, now - lastStripDumpTime > 1.0,
            let strip = ScanOCR.collectorStrip(from: cardImage, ciContext: ciContext) {
@@ -347,29 +434,20 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         if type != nil { lastDetectedType = type }
     }
 
-    /// The card title sits in the top name bar (~2–11% down). OCR it and match
-    /// against the deck's English + Japanese names; a confident, unique match
-    /// over two frames fires directly — printing-independent, collision-free.
-    private func recognizeCardName(in image: CGImage) {
-        let text = ScanOCR.titleText(in: image)
-        guard let id = CardNameMatcher.match(ocrText: text, candidates: nameLookup) else {
-            lastNameMatchId = nil
-            nameConsecutiveCount = 0
-            return
-        }
-        if verbose { print("[name] OCR=\(text) -> \(cardNameMap[id] ?? id)") }
-        if id == lastNameMatchId {
-            nameConsecutiveCount += 1
-        } else {
-            lastNameMatchId = id
-            nameConsecutiveCount = 1
-        }
-        if nameConsecutiveCount >= 2 {
-            nameConsecutiveCount = 0
-            lastNameMatchId = nil
-            Task { @MainActor in
-                self.scanFeedback = nil
-                self.nameMatchResult = id
+    private enum FireChannel { case name, image }
+
+    /// Confirm a match: clear every vote streak (so the next scan starts clean)
+    /// and publish the id on the channel the view observes.
+    private func fire(_ id: String, via channel: FireChannel) {
+        visionConsecutiveCount = 0; lastVisionMatchId = nil
+        nameConsecutiveCount = 0; lastNameMatchId = nil
+        typeConsecutiveCount = 0; lastTypeMatchId = nil
+        nearConsecutiveCount = 0; lastNearMatchId = nil
+        Task { @MainActor in
+            self.scanFeedback = nil
+            switch channel {
+            case .name: self.nameMatchResult = id
+            case .image: self.imageMatchResult = id
             }
         }
     }
