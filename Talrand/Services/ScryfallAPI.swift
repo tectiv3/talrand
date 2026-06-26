@@ -11,10 +11,12 @@ struct ScryfallImageUris: Codable {
 
 struct ScryfallCardFace: Codable {
     let name: String
+    let printedName: String?
     let imageUris: ScryfallImageUris?
 
     enum CodingKeys: String, CodingKey {
         case name
+        case printedName = "printed_name"
         case imageUris = "image_uris"
     }
 }
@@ -198,7 +200,10 @@ actor ScryfallAPI {
               let encodedId = oracleId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
         let url = "\(baseURL)/cards/search?q=oracleid%3A\(encodedId)+lang%3A\(lang)&unique=prints"
         let result: ScryfallSearchResult? = try? await request(url: url)
-        return result?.data.compactMap { $0.printedName }.first { !$0.isEmpty }
+        return result?.data.compactMap { card in
+            let n = card.printedName ?? card.cardFaces?.first?.printedName
+            return (n?.isEmpty == false) ? n : nil
+        }.first
     }
 
     func searchCards(query: String) async throws -> [ScryfallCard] {

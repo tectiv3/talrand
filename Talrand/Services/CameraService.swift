@@ -105,10 +105,15 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             var lookup: [(name: String, id: String)] = []
             for item in names {
                 nameMap[item.id] = item.name
-                lookup.append((name: item.name, id: item.id))
-                if !item.printed.isEmpty {
-                    lookup.append((name: item.printed, id: item.id))
+                func add(_ s: String) {
+                    guard !s.isEmpty else { return }
+                    lookup.append((name: s, id: item.id))
+                    if let front = s.components(separatedBy: " // ").first, front != s, !front.isEmpty {
+                        lookup.append((name: front, id: item.id))
+                    }
                 }
+                add(item.name)
+                if !item.printed.isEmpty { add(item.printed) }
             }
             self.cardNameMap = nameMap
             self.nameLookup = lookup
