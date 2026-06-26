@@ -8,6 +8,7 @@ extension Card: Identifiable {
 struct ContentView: View {
     @Query private var decks: [Deck]
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab = 0
     @State private var navigationPath = NavigationPath()
     @State private var cardForSwap: Card?
@@ -26,6 +27,9 @@ struct ContentView: View {
                         DebugExport.deckIndex(modelContext: modelContext)
                     }
                     #endif
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .background { autoBackup(deck: deck) }
                 }
         } else {
             SetupView()
@@ -122,6 +126,18 @@ struct ContentView: View {
     private func recordScan(_ card: Card) {
         card.lastScannedAt = .now
         try? modelContext.save()
+    }
+
+    /// On backgrounding, write the deck snapshot to the iCloud Drive container so
+    /// a backup exists without the user having to think about it. The snapshot is
+    /// built on the main actor (it reads SwiftData), then the slow iCloud file
+    /// write is handed off the main thread.
+    private func autoBackup(deck: Deck) {
+        let backup = BackupService.makeBackup(deck: deck)
+        guard let data = try? BackupCodec.encode(backup) else { return }
+        Task.detached(priority: .background) {
+            ICloudBackup.write(data)
+        }
     }
 }
 

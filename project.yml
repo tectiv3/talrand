@@ -24,12 +24,19 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # Surfaces the backup file under "Talrand" in the Files app's iCloud Drive.
+        NSUbiquitousContainers:
+          iCloud.com.talrand.app:
+            NSUbiquitousContainerIsDocumentScopePublic: true
+            NSUbiquitousContainerName: Talrand
+            NSUbiquitousContainerSupportedFolderLevels: Any
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.talrand.app
         INFOPLIST_FILE: Talrand/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.games"
+        CODE_SIGN_ENTITLEMENTS: Talrand/Talrand.entitlements
     # DEVELOPMENT_TEAM lives only in the git-ignored Local.xcconfig, so the
     # generated project carries the signing reference but never the team id.
     configFiles:
