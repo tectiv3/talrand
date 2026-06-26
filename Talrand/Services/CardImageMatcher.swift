@@ -10,6 +10,7 @@ struct CardReferenceData {
 struct MatchResult {
     let scryfallId: String
     let distance: Float
+    let runnerUpDistance: Float
     let isStrong: Bool
 }
 
@@ -17,8 +18,14 @@ class CardImageMatcher {
     private var references: [(scryfallId: String, featurePrint: VNFeaturePrintObservation)] = []
     private(set) var isReady = false
     private let imageCache = ImageCacheService()
-    private let strongThreshold: Float = 12.0
-    private let nearThreshold: Float = 18.0
+    // Measured on-device: correct matches land ~0.6–0.85, wrong cards / empty
+    // table cluster ~0.9–1.0 with the runner-up nearly tied.
+    private let strongThreshold: Float = 0.86
+    private let nearThreshold: Float = 1.1
+    // The nearest neighbour must also clearly beat the runner-up. A ratio test
+    // demanded too wide a margin for cards with similar (dark blue) art; an
+    // absolute gap accepts those while the table still clusters with ~0 gap.
+    private let minRunnerUpGap: Float = 0.05
 
     func loadReferences(_ cards: [CardReferenceData]) {
         var prints: [(scryfallId: String, featurePrint: VNFeaturePrintObservation)] = []
@@ -48,6 +55,7 @@ class CardImageMatcher {
 
         var bestId: String?
         var bestDist: Float = .greatestFiniteMagnitude
+        var runnerUpDist: Float = .greatestFiniteMagnitude
 
         for ref in references {
             var d: Float = 0
@@ -57,13 +65,21 @@ class CardImageMatcher {
                 continue
             }
             if d < bestDist {
+                // Only count a *different* card as the runner-up; multiple
+                // printings of the same card would otherwise mask the margin.
+                if ref.scryfallId != bestId {
+                    runnerUpDist = bestDist
+                }
                 bestDist = d
                 bestId = ref.scryfallId
+            } else if d < runnerUpDist, ref.scryfallId != bestId {
+                runnerUpDist = d
             }
         }
 
         guard let id = bestId, bestDist < nearThreshold else { return nil }
-        return MatchResult(scryfallId: id, distance: bestDist, isStrong: bestDist < strongThreshold)
+        let strong = bestDist < strongThreshold && (runnerUpDist - bestDist) > minRunnerUpGap
+        return MatchResult(scryfallId: id, distance: bestDist, runnerUpDistance: runnerUpDist, isStrong: strong)
     }
 
     // MARK: - Private

@@ -310,7 +310,17 @@ struct CameraScannerView: View {
     private func loadCardReferencesIfNeeded() {
         let descriptor = FetchDescriptor<Card>()
         guard let cards = try? modelContext.fetch(descriptor) else { return }
-        cameraService.loadCardReferences(cards)
+
+        // Lands (generic/near-identical art) and the commander (always known)
+        // only add false-positive surface to the feature-print matcher.
+        let commanderIds = Set(
+            ((try? modelContext.fetch(FetchDescriptor<Deck>())) ?? [])
+                .compactMap { $0.commander?.scryfallId }
+        )
+        let scannable = cards.filter { card in
+            !card.typeLine.contains("Land") && !commanderIds.contains(card.scryfallId)
+        }
+        cameraService.loadCardReferences(scannable)
     }
 
     // MARK: - Permission Denied

@@ -11,7 +11,14 @@ struct CollectorNumberParser {
         var seen = Set<CollectorNumberCandidate>()
         var results: [CollectorNumberCandidate] = []
 
-        func add(_ candidate: CollectorNumberCandidate) {
+        func add(_ raw: CollectorNumberCandidate) {
+            // Modern/JP cards print zero-padded numbers ("048", "0160") but
+            // Scryfall stores them unpadded ("48", "160"); normalize so lookups
+            // hit. Compound/lettered numbers (e.g. "MRD-159") are left intact.
+            var candidate = raw
+            if raw.collectorNumber.allSatisfy(\.isNumber), let n = Int(raw.collectorNumber) {
+                candidate = CollectorNumberCandidate(setCode: raw.setCode, collectorNumber: String(n))
+            }
             if let set = candidate.setCode, !knownSetCodes.isEmpty, !knownSetCodes.contains(set.uppercased()) {
                 return
             }
@@ -33,11 +40,14 @@ struct CollectorNumberParser {
         }
 
         // Pattern 2: Number/total (any era)
-        // e.g. "61/350", "124/674"
-        if let regex = try? NSRegularExpression(pattern: #"(\d{1,4})\s*/\s*\d{1,4}"#) {
+        // e.g. "61/350", "124/674". The denominator is the set total, always
+        // large — guarding on it rejects creature power/toughness like "4/4".
+        if let regex = try? NSRegularExpression(pattern: #"(\d{1,4})\s*/\s*(\d{1,4})"#) {
             let matches = regex.matches(in: ocrText, range: NSRange(ocrText.startIndex..., in: ocrText))
             for match in matches {
-                guard let numRange = Range(match.range(at: 1), in: ocrText) else { continue }
+                guard let numRange = Range(match.range(at: 1), in: ocrText),
+                      let denRange = Range(match.range(at: 2), in: ocrText),
+                      let total = Int(ocrText[denRange]), total >= 20 else { continue }
                 let number = String(ocrText[numRange])
                 add(CollectorNumberCandidate(setCode: nil, collectorNumber: number))
             }

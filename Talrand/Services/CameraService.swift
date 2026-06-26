@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreImage
+import UIKit
 import Vision
 
 struct ScanResult: Equatable {
@@ -41,7 +42,18 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var lastFeedbackTime: CFAbsoluteTime = 0
     private var lastVisionMatchId: String?
     private var visionConsecutiveCount = 0
-    private let requiredVisionConsecutive = 3
+    private var lastVisionVoteTime: CFAbsoluteTime = 0
+    private var lastDebugDumpTime: CFAbsoluteTime = 0
+    private var lastStripDumpTime: CFAbsoluteTime = 0
+    private var lastOcrTime: CFAbsoluteTime = 0
+    // OCR on the upscaled strip is expensive; running it every frame starves the
+    // faster feature-print path. The code doesn't change frame-to-frame.
+    private let ocrInterval: CFAbsoluteTime = 0.35
+    private let requiredVisionConsecutive = 2
+    // Strong frames are interspersed with jittery non-strong ones, so votes for
+    // the same card accumulate as long as they keep arriving within this window
+    // rather than requiring a strict unbroken run.
+    private let visionVoteWindow: CFAbsoluteTime = 1.5
     private var lastNearMatchId: String?
     private var nearConsecutiveCount = 0
 
@@ -200,19 +212,37 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             return
         }
 
+        if verbose, now - lastDebugDumpTime > 1.0 {
+            lastDebugDumpTime = now
+            saveDebugCrop(cardImage)
+        }
+
         if cardMatcher.isReady {
             if let match = cardMatcher.findMatch(in: cardImage) {
                 if verbose {
                     let name = cardNameMap[match.scryfallId] ?? match.scryfallId
-                    print("[scan] best match: \(name) d=\(String(format: "%.1f", match.distance)) strong=\(match.isStrong)")
+                    let d = String(format: "%.3f", match.distance)
+                    let next = String(format: "%.3f", match.runnerUpDistance)
+                    print("[scan] best: \(name) d=\(d) next=\(next) strong=\(match.isStrong)")
+                    if now - lastFeedbackTime > 0.4 {
+                        lastFeedbackTime = now
+                        let shortName = cardNameMap[match.scryfallId] ?? "?"
+                        Task { @MainActor in
+                            self.scanFeedback = "\(shortName)  d=\(d) / next \(next)"
+                        }
+                    }
                 }
                 if match.isStrong {
-                    if match.scryfallId == lastVisionMatchId {
+                    // Accumulate votes across non-strong frames; reset only when
+                    // the card changes or the run goes stale, so hand jitter no
+                    // longer wipes progress toward a confirmed match.
+                    if match.scryfallId == lastVisionMatchId, now - lastVisionVoteTime < visionVoteWindow {
                         visionConsecutiveCount += 1
                     } else {
                         lastVisionMatchId = match.scryfallId
                         visionConsecutiveCount = 1
                     }
+                    lastVisionVoteTime = now
 
                     if visionConsecutiveCount >= requiredVisionConsecutive {
                         visionConsecutiveCount = 0
@@ -225,9 +255,6 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                         }
                         return
                     }
-                } else {
-                    lastVisionMatchId = nil
-                    visionConsecutiveCount = 0
                 }
 
                 if let name = cardNameMap[match.scryfallId] {
@@ -258,19 +285,68 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
             }
         }
 
+        // The collector code is small and low-contrast (especially on modern JP
+        // cards). A regionOfInterest only shrinks the search window — it doesn't
+        // make tiny text legible — so instead crop the bottom strip, upscale and
+        // boost contrast, then OCR that as a full image.
+        guard now - lastOcrTime >= ocrInterval else { return }
+        lastOcrTime = now
+        guard let strip = collectorStrip(from: cardImage) else { return }
+
         let request = VNRecognizeTextRequest { [weak self] request, _ in
             self?.handleRecognitionResults(request.results as? [VNRecognizedTextObservation])
         }
         request.recognitionLevel = .accurate
-        // Cropped card is upright; collector number sits in the bottom band.
-        request.regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: 0.25)
         request.recognitionLanguages = ["ja-JP", "en-US"]
         request.customWords = cachedSetCodes
         request.usesLanguageCorrection = false
-        request.minimumTextHeight = 0.02
 
-        let handler = VNImageRequestHandler(cgImage: cardImage, options: [:])
+        let handler = VNImageRequestHandler(cgImage: strip, options: [:])
         try? handler.perform([request])
+    }
+
+    /// Bottom strip of the card, upscaled 3× and contrast-boosted to grayscale so
+    /// Vision can read the small set code + collector number.
+    private func collectorStrip(from image: CGImage) -> CGImage? {
+        let stripHeight = Int(Double(image.height) * 0.16)
+        let rect = CGRect(x: 0, y: image.height - stripHeight, width: image.width, height: stripHeight)
+        guard let cropped = image.cropping(to: rect) else { return nil }
+
+        // Upscale for legibility, desaturate, then *sharpen* rather than
+        // hard-contrast — aggressive contrast clips hairline glyphs (the "1" in
+        // "0160" was eroded to an apostrophe). Sharpening recovers thin strokes.
+        let processed = CIImage(cgImage: cropped)
+            .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 4.0])
+            .applyingFilter("CIColorControls", parameters: [
+                kCIInputSaturationKey: 0.0,
+                kCIInputContrastKey: 1.12,
+            ])
+            .applyingFilter("CISharpenLuminance", parameters: [
+                kCIInputSharpnessKey: 0.7,
+            ])
+        let result = ciContext.createCGImage(processed, from: processed.extent)
+        if verbose, let result, CFAbsoluteTimeGetCurrent() - lastStripDumpTime > 1.0 {
+            lastStripDumpTime = CFAbsoluteTimeGetCurrent()
+            saveDebugStrip(result)
+        }
+        return result
+    }
+
+    // MARK: - Debug
+
+    /// Writes the perspective-corrected crop to Documents/scan_crop.jpg so it can
+    /// be pulled off-device to verify the bottom collector line isn't clipped.
+    private func saveDebugCrop(_ image: CGImage) {
+        guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+              let data = UIImage(cgImage: image).jpegData(compressionQuality: 0.9) else { return }
+        try? data.write(to: dir.appendingPathComponent("scan_crop.jpg"))
+    }
+
+    /// Writes the upscaled collector strip so its legibility can be verified.
+    private func saveDebugStrip(_ image: CGImage) {
+        guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first,
+              let data = UIImage(cgImage: image).jpegData(compressionQuality: 0.9) else { return }
+        try? data.write(to: dir.appendingPathComponent("scan_strip.jpg"))
     }
 
     // MARK: - Card Detection
@@ -326,6 +402,10 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         if verbose { print("[scan] OCR: \(ocrText)") }
 
         let candidates = CollectorNumberParser.parse(ocrText: ocrText, knownSetCodes: knownSetCodesSet)
+        if verbose {
+            let parsed = candidates.map { "\($0.setCode ?? "?")#\($0.collectorNumber)" }.joined(separator: ", ")
+            print("[scan] candidates: [\(parsed)]")
+        }
         guard let topCandidate = candidates.first else {
             lastCandidate = nil
             consecutiveMatchCount = 0
