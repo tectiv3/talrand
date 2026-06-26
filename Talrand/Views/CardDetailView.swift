@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
 
 struct CardDetailView: View {
     let card: Card
@@ -9,6 +10,9 @@ struct CardDetailView: View {
     @State private var showingBack = false
     @State private var cardImage: UIImage?
     @State private var showRulings = false
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showingCamera = false
+    @State private var showingPhotoMenu = false
 
     private var isDFC: Bool {
         card.layout == "transform" || card.layout == "modal_dfc"
@@ -67,9 +71,48 @@ struct CardDetailView: View {
             .onTapGesture {
                 if isDFC { showingBack.toggle() }
             }
+            .contextMenu {
+                if !showingBack {
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                        Button {
+                            showingCamera = true
+                        } label: {
+                            Label("Take Photo", systemImage: "camera")
+                        }
+                    }
+
+                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                        Label("Choose from Library", systemImage: "photo.on.rectangle")
+                    }
+
+                    if card.customImagePath != nil {
+                        Button(role: .destructive) {
+                            restoreOriginalImage()
+                        } label: {
+                            Label("Restore Original", systemImage: "arrow.uturn.backward")
+                        }
+                    }
+                }
+            }
             .frame(maxWidth: .infinity)
-            .task(id: showingBack) {
+            .task(id: "\(showingBack)_\(card.customImagePath ?? "")") {
                 cardImage = await loadCurrentImage()
+            }
+            .onChange(of: selectedPhoto) { _, newItem in
+                guard let newItem else { return }
+                Task {
+                    if let data = try? await newItem.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        applyCustomImage(image)
+                    }
+                    selectedPhoto = nil
+                }
+            }
+            .fullScreenCover(isPresented: $showingCamera) {
+                CameraImagePicker { image in
+                    applyCustomImage(image)
+                }
+                .ignoresSafeArea()
             }
 
             if isDFC {
@@ -288,13 +331,76 @@ struct CardDetailView: View {
     // MARK: - Image Loading
 
     private func loadCurrentImage() async -> UIImage? {
-        let storedPath = showingBack ? card.localBackImagePath : card.localFrontImagePath
+        let storedPath: String?
+        if showingBack {
+            storedPath = card.localBackImagePath
+        } else {
+            storedPath = card.customImagePath ?? card.localFrontImagePath
+        }
         guard let storedPath, !storedPath.isEmpty else { return nil }
         return await Task.detached {
             let cache = ImageCacheService()
             guard let resolved = cache.resolvedPath(storedPath) else { return nil as UIImage? }
             return UIImage(contentsOfFile: resolved)
         }.value
+    }
+
+    private func applyCustomImage(_ image: UIImage) {
+        let cache = ImageCacheService()
+        if let filename = cache.saveCustomImage(image, for: card.scryfallId) {
+            card.customImagePath = filename
+            Task {
+                cardImage = await loadCurrentImage()
+            }
+        }
+    }
+
+    private func restoreOriginalImage() {
+        let cache = ImageCacheService()
+        cache.deleteCustomImage(for: card.scryfallId)
+        card.customImagePath = nil
+        Task {
+            cardImage = await loadCurrentImage()
+        }
+    }
+}
+
+private struct CameraImagePicker: UIViewControllerRepresentable {
+    let onImageCaptured: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onImageCaptured: onImageCaptured, dismiss: dismiss)
+    }
+
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let onImageCaptured: (UIImage) -> Void
+        let dismiss: DismissAction
+
+        init(onImageCaptured: @escaping (UIImage) -> Void, dismiss: DismissAction) {
+            self.onImageCaptured = onImageCaptured
+            self.dismiss = dismiss
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                onImageCaptured(image)
+            }
+            dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            dismiss()
+        }
     }
 }
 

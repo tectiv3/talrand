@@ -20,6 +20,7 @@ class Card: Hashable {
     var backImageUrl: String?
     var localFrontImagePath: String?
     var localBackImagePath: String?
+    var customImagePath: String? = nil
 
     @Relationship(deleteRule: .cascade)
     var rulings: [Ruling]

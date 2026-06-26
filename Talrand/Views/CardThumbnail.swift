@@ -31,7 +31,7 @@ struct CardThumbnail: View {
 
     private var pathForFace: String? {
         switch face {
-        case .front: card.localFrontImagePath
+        case .front: card.customImagePath ?? card.localFrontImagePath
         case .back: card.localBackImagePath
         }
     }
@@ -39,7 +39,7 @@ struct CardThumbnail: View {
     private func loadImage() async -> UIImage? {
         let storedPath: String?
         switch face {
-        case .front: storedPath = card.localFrontImagePath
+        case .front: storedPath = card.customImagePath ?? card.localFrontImagePath
         case .back: storedPath = card.localBackImagePath
         }
         guard let storedPath, !storedPath.isEmpty else { return nil }

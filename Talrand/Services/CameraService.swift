@@ -12,9 +12,13 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     var isRunning = false
     var permissionGranted = false
     var permissionDenied = false
+    var imageMatchResult: Card?
+    var scanFeedback: String?
     let captureSession = AVCaptureSession()
 
+    let cardMatcher = CardImageMatcher()
     private let processingQueue = DispatchQueue(label: "com.talrand.camera.processing")
+    private var isConfigured = false
     private var lastProcessedTime: CFAbsoluteTime = 0
     private let minimumFrameInterval: CFAbsoluteTime = 0.2
     private var cachedSetCodes: [String] = []
@@ -22,6 +26,9 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var lastCandidate: CollectorNumberCandidate?
     private var consecutiveMatchCount = 0
     private let requiredConsecutiveMatches = 2
+    private var cardNameMap: [String: String] = [:]
+    private var cardMap: [String: Card] = [:]
+    private var lastFeedbackTime: CFAbsoluteTime = 0
 
     func checkPermission() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -41,9 +48,38 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         }
     }
 
+    func loadCardReferences(_ cards: [Card]) {
+        let cardData = cards.map { (scryfallId: $0.scryfallId, name: $0.name, card: $0) }
+        processingQueue.async { [weak self] in
+            guard let self else { return }
+            var nameMap: [String: String] = [:]
+            var objMap: [String: Card] = [:]
+            for item in cardData {
+                nameMap[item.scryfallId] = item.name
+                objMap[item.scryfallId] = item.card
+            }
+            self.cardNameMap = nameMap
+            self.cardMap = objMap
+            self.cardMatcher.loadReferences(cards)
+        }
+    }
+
     func startSession() {
         guard !isRunning else { return }
 
+        if !isConfigured {
+            setupSession()
+        }
+
+        processingQueue.async { [weak self] in
+            self?.captureSession.startRunning()
+            Task { @MainActor in
+                self?.isRunning = true
+            }
+        }
+    }
+
+    private func setupSession() {
         captureSession.beginConfiguration()
         captureSession.sessionPreset = .high
 
@@ -67,17 +103,11 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         captureSession.addOutput(output)
 
         captureSession.commitConfiguration()
+        isConfigured = true
 
         Task {
             cachedSetCodes = await ScryfallAPI.shared.fetchSetCodes()
             knownSetCodesSet = Set(cachedSetCodes)
-        }
-
-        processingQueue.async { [weak self] in
-            self?.captureSession.startRunning()
-            Task { @MainActor in
-                self?.isRunning = true
-            }
         }
     }
 
@@ -119,6 +149,32 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         lastProcessedTime = now
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+        if cardMatcher.isReady {
+            if let match = cardMatcher.findBestMatch(in: pixelBuffer),
+               let card = cardMap[match.scryfallId] {
+                Task { @MainActor in
+                    self.scanFeedback = nil
+                    self.imageMatchResult = card
+                }
+                return
+            }
+
+            if let nearMatch = cardMatcher.findNearMatch(in: pixelBuffer),
+               let name = cardNameMap[nearMatch.scryfallId] {
+                if now - lastFeedbackTime > 1.0 {
+                    lastFeedbackTime = now
+                    Task { @MainActor in
+                        self.scanFeedback = "Maybe: \(name)?"
+                    }
+                }
+            } else if now - lastFeedbackTime > 2.0 {
+                lastFeedbackTime = now
+                Task { @MainActor in
+                    self.scanFeedback = "Scanning..."
+                }
+            }
+        }
 
         let request = VNRecognizeTextRequest { [weak self] request, _ in
             self?.handleRecognitionResults(request.results as? [VNRecognizedTextObservation])

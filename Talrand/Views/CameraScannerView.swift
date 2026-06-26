@@ -47,6 +47,8 @@ struct CameraScannerView: View {
     @State private var showNoMatch = false
     @State private var lastMatchTime: Date = .distantPast
     @State private var isPulsing = false
+    @State private var showingSearch = false
+    @State private var searchText = ""
 
     private let matchCooldown: TimeInterval = 2
 
@@ -54,15 +56,24 @@ struct CameraScannerView: View {
         ZStack {
             if cameraService.permissionDenied {
                 permissionDeniedView
+            } else if showingSearch {
+                localSearchView
             } else {
                 cameraLayer
                 scanOverlay
                 controlsOverlay
                 feedbackOverlay
+                searchButtonOverlay
             }
+        }
+        .task {
+            loadCardReferencesIfNeeded()
         }
         .onAppear {
             cameraService.checkPermission()
+            if cameraService.permissionGranted {
+                cameraService.startSession()
+            }
         }
         .onChange(of: cameraService.permissionGranted) { _, granted in
             if granted {
@@ -72,6 +83,18 @@ struct CameraScannerView: View {
         .onChange(of: cameraService.lastScanResult) { _, result in
             guard let result else { return }
             processCandidates(result)
+        }
+        .onChange(of: cameraService.imageMatchResult) { _, card in
+            guard let card else { return }
+            cameraService.imageMatchResult = nil
+            guard Date.now.timeIntervalSince(lastMatchTime) >= matchCooldown else { return }
+            lastMatchTime = .now
+            matchedCardName = card.name
+            Task {
+                try? await Task.sleep(for: .seconds(matchCooldown))
+                matchedCardName = nil
+            }
+            onCardMatched?(card)
         }
         .onDisappear {
             cameraService.stopSession()
@@ -111,13 +134,24 @@ struct CameraScannerView: View {
                         )
                         .onAppear { isPulsing = true }
 
-                    Text("Position collector number here")
-                        .font(.caption)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.black.opacity(0.6), in: Capsule())
-                        .offset(y: -guideHeight / 2 + 16)
+                    VStack(spacing: 6) {
+                        if let feedback = cameraService.scanFeedback {
+                            Text(feedback)
+                                .font(.caption)
+                                .foregroundStyle(MTGTheme.textPrimary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(MTGTheme.cardBg.opacity(0.85), in: Capsule())
+                        }
+
+                        Text("Point camera at card")
+                            .font(.caption)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.black.opacity(0.6), in: Capsule())
+                    }
+                    .offset(y: -guideHeight / 2 + 20)
                 }
                 .frame(height: guideHeight)
             }
@@ -183,6 +217,96 @@ struct CameraScannerView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: matchedCardName)
         .animation(.easeInOut(duration: 0.3), value: showNoMatch)
+    }
+
+    // MARK: - Search Button
+
+    private var searchButtonOverlay: some View {
+        VStack {
+            Spacer()
+            Button {
+                cameraService.stopSession()
+                showingSearch = true
+            } label: {
+                Label("Search by Name", systemImage: "magnifyingglass")
+                    .font(.subheadline.bold())
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+            }
+            .padding(.bottom, 24)
+        }
+    }
+
+    // MARK: - Local Search
+
+    private var filteredCards: [Card] {
+        guard !searchText.isEmpty else { return [] }
+        let query = searchText.lowercased()
+        let descriptor = FetchDescriptor<Card>()
+        guard let allCards = try? modelContext.fetch(descriptor) else { return [] }
+        return allCards.filter { $0.name.lowercased().contains(query) }
+    }
+
+    private var localSearchView: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                TextField("Card name", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+
+                Button {
+                    searchText = ""
+                    showingSearch = false
+                    cameraService.startSession()
+                } label: {
+                    Label("Scanner", systemImage: "camera")
+                        .font(.subheadline)
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding()
+            .background(MTGTheme.darkBg)
+
+            if searchText.isEmpty {
+                Spacer()
+                Text("Type a card name to search your deck")
+                    .font(.subheadline)
+                    .foregroundStyle(MTGTheme.textSecondary)
+                Spacer()
+            } else if filteredCards.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            } else {
+                List(filteredCards, id: \.scryfallId) { card in
+                    Button {
+                        onCardMatched?(card)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(card.name)
+                                .font(.body)
+                                .foregroundStyle(MTGTheme.textPrimary)
+                            Text("\(card.setCode.uppercased()) #\(card.collectorNumber) — \(card.typeLine)")
+                                .font(.caption)
+                                .foregroundStyle(MTGTheme.textSecondary)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .listRowBackground(MTGTheme.cardBg)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(MTGTheme.darkBg)
+            }
+        }
+        .background(MTGTheme.darkBg)
+    }
+
+    // MARK: - Load References
+
+    private func loadCardReferencesIfNeeded() {
+        let descriptor = FetchDescriptor<Card>()
+        guard let cards = try? modelContext.fetch(descriptor) else { return }
+        cameraService.loadCardReferences(cards)
     }
 
     // MARK: - Permission Denied

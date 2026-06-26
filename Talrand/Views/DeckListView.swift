@@ -1,6 +1,34 @@
 import SwiftUI
 import SwiftData
 
+enum ThumbnailSize: String, CaseIterable {
+    case compact, normal, large
+
+    var displayName: String {
+        switch self {
+        case .compact: "Compact"
+        case .normal: "Normal"
+        case .large: "Large"
+        }
+    }
+
+    var cardSize: CGSize {
+        switch self {
+        case .compact: CGSize(width: 48, height: 67)
+        case .normal: CGSize(width: 64, height: 90)
+        case .large: CGSize(width: 80, height: 112)
+        }
+    }
+
+    var rowPadding: CGFloat {
+        switch self {
+        case .compact: 4
+        case .normal: 6
+        case .large: 8
+        }
+    }
+}
+
 struct CollapsedSections: RawRepresentable {
     var sections: Set<String>
 
@@ -19,6 +47,7 @@ struct DeckListView: View {
     @Query private var decks: [Deck]
     @State private var searchText = ""
     @AppStorage("collapsedSections") private var collapsedSections = CollapsedSections(["Sideboard"])
+    @AppStorage("thumbnailSize") private var thumbnailSize = ThumbnailSize.normal
 
     private var deck: Deck? { decks.first }
 
@@ -77,6 +106,24 @@ struct DeckListView: View {
         }
         .background(MTGTheme.darkBg)
         .searchable(text: $searchText, prompt: "Search cards")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Section("Card Size") {
+                        Picker(selection: $thumbnailSize) {
+                            ForEach(ThumbnailSize.allCases, id: \.self) { size in
+                                Text(size.displayName).tag(size)
+                            }
+                        } label: {
+                            EmptyView()
+                        }
+                    }
+                } label: {
+                    Image(systemName: "gearshape")
+                        .foregroundStyle(MTGTheme.gold)
+                }
+            }
+        }
     }
 
     // MARK: - Commander
@@ -86,7 +133,7 @@ struct DeckListView: View {
         if let commander = deck.commander {
             NavigationLink(value: commander) {
                 HStack(spacing: 12) {
-                    CardThumbnail(card: commander, size: CGSize(width: 48, height: 67))
+                    CardThumbnail(card: commander, size: thumbnailSize.cardSize)
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text("COMMANDER")
@@ -220,7 +267,7 @@ struct DeckListView: View {
 
     private func cardRow(_ card: Card, quantity: Int) -> some View {
         HStack(spacing: 10) {
-            CardThumbnail(card: card, size: CGSize(width: 48, height: 67))
+            CardThumbnail(card: card, size: thumbnailSize.cardSize)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(card.name)
@@ -244,7 +291,7 @@ struct DeckListView: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.vertical, thumbnailSize.rowPadding)
         .background(MTGTheme.cardBg)
     }
 
