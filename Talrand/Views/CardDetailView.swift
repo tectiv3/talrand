@@ -10,6 +10,7 @@ struct CardDetailView: View {
     @State private var showingBack = false
     @State private var cardImage: UIImage?
     @State private var showRulings = false
+    @State private var showPrintings = false
     @State private var isRefreshing = false
 
     // Need a fetch when there's no displayable cached image — regardless of
@@ -40,8 +41,8 @@ struct CardDetailView: View {
                 if !uniqueRulings.isEmpty {
                     rulingsSection
                 }
-                if let onReplace {
-                    replaceSection(onReplace)
+                if !deckPrintings.isEmpty {
+                    printingsSection
                 }
             }
         }
@@ -49,6 +50,16 @@ struct CardDetailView: View {
         .navigationTitle(card.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar {
+            if let onReplace {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: onReplace) {
+                        Image(systemName: "arrow.triangle.swap")
+                    }
+                    .tint(MTGTheme.goldDim)
+                }
+            }
+        }
         .task(id: card.scryfallId) {
             if needsFetch { await refresh() }
         }
@@ -302,27 +313,74 @@ struct CardDetailView: View {
         }
     }
 
-    // MARK: - Replace
+    // MARK: - Printings
 
-    private func replaceSection(_ action: @escaping () -> Void) -> some View {
-        Button {
-            action()
-        } label: {
-            HStack {
-                Image(systemName: "arrow.triangle.swap")
-                Text("Replace Card")
-                    .fontWeight(.semibold)
+    private var deckPrintings: [CollectorNumberEntry] {
+        let name = card.name
+        let descriptor = FetchDescriptor<CollectorNumberEntry>(
+            predicate: #Predicate { $0.cardName == name },
+            sortBy: [SortDescriptor(\.setCode), SortDescriptor(\.collectorNumber)]
+        )
+        return (try? modelContext.fetch(descriptor)) ?? []
+    }
+
+    private var printingsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showPrintings.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("PRINTINGS")
+                        .font(.caption)
+                        .fontWeight(.heavy)
+                        .tracking(1.5)
+                        .foregroundStyle(MTGTheme.gold)
+                    Text("\(deckPrintings.count)")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundStyle(MTGTheme.darkBg)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(MTGTheme.goldDim, in: Capsule())
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(MTGTheme.textSecondary)
+                        .rotationEffect(.degrees(showPrintings ? 90 : 0))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .foregroundStyle(MTGTheme.darkBg)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(MTGTheme.gold)
-            )
+            .buttonStyle(.plain)
+
+            if showPrintings {
+                VStack(spacing: 8) {
+                    ForEach(deckPrintings) { printing in
+                        HStack(spacing: 10) {
+                            Text(printing.setCode.uppercased())
+                                .font(.caption.monospaced())
+                                .fontWeight(.bold)
+                                .foregroundStyle(MTGTheme.goldDim)
+                            Text("#\(printing.collectorNumber)")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(MTGTheme.parchment)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(MTGTheme.cardBg)
+                        )
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 16)
     }
 
     // MARK: - Image Loading
