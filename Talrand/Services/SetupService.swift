@@ -42,6 +42,9 @@ class SetupService {
 
     private let imageCache = ImageCacheService()
     private var errorContinuation: CheckedContinuation<ErrorResolution, Never>?
+    // Once set, every subsequent fetch failure auto-skips without prompting, so a
+    // rate-limit storm can't force one tap per failing card.
+    private var skipAll = false
 
     private enum ErrorResolution {
         case retry
@@ -58,6 +61,21 @@ class SetupService {
         error = nil
         errorContinuation?.resume(returning: .skip)
         errorContinuation = nil
+    }
+
+    func skipAllRemaining() {
+        skipAll = true
+        error = nil
+        errorContinuation?.resume(returning: .skip)
+        errorContinuation = nil
+    }
+
+    /// Resolve a fetch failure: auto-skip when "Skip All" is active, otherwise
+    /// surface the error screen and wait for the user's choice.
+    private func resolveFailure(_ setupError: SetupError) async -> ErrorResolution {
+        if skipAll { return .skip }
+        error = setupError
+        return await waitForUserResolution()
     }
 
     @MainActor
@@ -391,8 +409,7 @@ class SetupService {
                     )
                 }
 
-                error = setupError
-                let resolution = await waitForUserResolution()
+                let resolution = await resolveFailure(setupError)
                 switch resolution {
                 case .retry:
                     shouldRetry = true
@@ -407,8 +424,7 @@ class SetupService {
                     cardName: card.name,
                     underlying: error.localizedDescription
                 )
-                self.error = setupError
-                let resolution = await waitForUserResolution()
+                let resolution = await resolveFailure(setupError)
                 switch resolution {
                 case .retry:
                     shouldRetry = true

@@ -148,8 +148,8 @@ actor ScryfallAPI {
     private let decoder: JSONDecoder
     private var lastRequestTime: ContinuousClock.Instant?
 
-    // Scryfall asks for 50-100ms between requests
-    private let minimumRequestInterval: Duration = .milliseconds(50)
+    // Scryfall asks for 50-100ms between requests; use the safer upper bound.
+    private let minimumRequestInterval: Duration = .milliseconds(100)
 
     init() {
         let config = URLSessionConfiguration.default
@@ -281,40 +281,51 @@ actor ScryfallAPI {
             throw ScryfallError.apiError("Invalid URL: \(urlString)")
         }
 
-        try await enforceRateLimit()
+        var attempt = 0
+        while true {
+            try await enforceRateLimit()
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(from: url)
-        } catch {
-            throw ScryfallError.networkError(error)
-        }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ScryfallError.networkError(
-                URLError(.badServerResponse)
-            )
-        }
-
-        switch httpResponse.statusCode {
-        case 200:
-            break
-        case 404:
-            throw ScryfallError.notFound
-        case 429:
-            throw ScryfallError.rateLimited
-        default:
-            if let errorResponse = try? decoder.decode(ScryfallErrorResponse.self, from: data) {
-                throw ScryfallError.apiError(errorResponse.details)
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(from: url)
+            } catch {
+                throw ScryfallError.networkError(error)
             }
-            throw ScryfallError.apiError("HTTP \(httpResponse.statusCode)")
-        }
 
-        do {
-            return try decoder.decode(T.self, from: data)
-        } catch {
-            throw ScryfallError.decodingError(error)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw ScryfallError.networkError(URLError(.badServerResponse))
+            }
+
+            switch httpResponse.statusCode {
+            case 200:
+                do {
+                    return try decoder.decode(T.self, from: data)
+                } catch {
+                    throw ScryfallError.decodingError(error)
+                }
+            case 404:
+                throw ScryfallError.notFound
+            case 429:
+                // Transparently retry rate limits: honor Retry-After when sent,
+                // otherwise back off exponentially (0.5s, 1s, 2s, 4s). Only after
+                // exhausting retries does the failure surface to the caller.
+                guard attempt < Self.maxRateLimitRetries else {
+                    throw ScryfallError.rateLimited
+                }
+                let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init)
+                let backoff = retryAfter ?? pow(2.0, Double(attempt)) * 0.5
+                try await Task.sleep(for: .seconds(backoff))
+                attempt += 1
+                continue
+            default:
+                if let errorResponse = try? decoder.decode(ScryfallErrorResponse.self, from: data) {
+                    throw ScryfallError.apiError(errorResponse.details)
+                }
+                throw ScryfallError.apiError("HTTP \(httpResponse.statusCode)")
+            }
         }
     }
+
+    private static let maxRateLimitRetries = 4
 }

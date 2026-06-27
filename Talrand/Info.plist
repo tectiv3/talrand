@@ -20,6 +20,18 @@
 	<string>1</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Talrand uses the camera to scan collector numbers on your cards</string>
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>iCloud.com.talrand.app</key>
+		<dict>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerName</key>
+			<string>Talrand</string>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>Any</string>
+		</dict>
+	</dict>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

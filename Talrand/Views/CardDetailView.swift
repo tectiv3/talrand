@@ -10,6 +10,15 @@ struct CardDetailView: View {
     @State private var showingBack = false
     @State private var cardImage: UIImage?
     @State private var showRulings = false
+    @State private var isRefreshing = false
+
+    // Need a fetch when there's no displayable cached image — regardless of
+    // frontImageUrl, since a card can carry the URL but no cached file if its
+    // image download was skipped during setup.
+    private var needsFetch: Bool {
+        guard let path = card.localFrontImagePath, !path.isEmpty else { return true }
+        return ImageCacheService().resolvedPath(path) == nil
+    }
 
     private var isDFC: Bool {
         card.layout == "transform" || card.layout == "modal_dfc"
@@ -40,11 +49,25 @@ struct CardDetailView: View {
         .navigationTitle(card.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .task(id: card.scryfallId) {
+            if needsFetch { await refresh() }
+        }
     }
 
     private func refresh() async {
-        let service = SetupService()
-        await service.refetchCards([card], modelContext: modelContext)
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        // Run the network work in an unstructured Task so that toggling
+        // isRefreshing (which re-renders and recreates the .refreshable/.task
+        // host) can't cancel the in-flight URLSession request — that
+        // cancellation surfaced as NSURLErrorCancelled (-999) and left images
+        // permanently blank.
+        let card = self.card
+        let ctx = modelContext
+        await Task { @MainActor in
+            await SetupService().refetchCards([card], modelContext: ctx)
+        }.value
         cardImage = await loadCurrentImage()
     }
 
@@ -98,9 +121,16 @@ struct CardDetailView: View {
             .aspectRatio(2.5 / 3.5, contentMode: .fit)
             .overlay {
                 VStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .font(.title)
-                        .foregroundStyle(MTGTheme.goldDim)
+                    if isRefreshing {
+                        ProgressView()
+                        Text("Fetching card…")
+                            .font(.caption)
+                            .foregroundStyle(MTGTheme.textSecondary)
+                    } else {
+                        Image(systemName: "sparkles")
+                            .font(.title)
+                            .foregroundStyle(MTGTheme.goldDim)
+                    }
                     Text(card.name)
                         .font(.headline)
                         .foregroundStyle(MTGTheme.textPrimary)

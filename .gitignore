@@ -10,3 +10,7 @@ DerivedData/
 scripts/
 Local.xcconfig
 Talrand.xcodeproj/
+.mcp.json
+
+# Local-only deck recovery backup (do not commit)
+recovery/
