@@ -124,21 +124,37 @@ struct CollectorNumberParser {
         }
 
         // Pattern 4: Split-line layout (modern cards)
-        // Rarity + number on one line, set code on another: "R 0057 ... SOS • EN"
+        // Set code + language on one line ("SOS • EN", "SOA・JP"); the collector
+        // number on another — rarity-prefixed ("R 0057") or, when the rarity letter
+        // isn't captured, a bare zero-padded number ("0020"). "・" is the Japanese
+        // middle dot (U+30FB), distinct from "·" (U+00B7) and "•".
         let rarityNumberPattern = try? NSRegularExpression(pattern: #"[RCUMSPBT]\s+0*(\d{1,4})\b"#)
-        let setCodePattern = try? NSRegularExpression(pattern: #"([A-Z]{2,5})\s*[·•]\s*[A-Z]{2}\b"#)
+        let paddedNumberPattern = try? NSRegularExpression(pattern: #"\b0\d{1,3}\b"#)
+        let setCodePattern = try? NSRegularExpression(pattern: #"([A-Z]{2,5})\s*[·•・]\s*[A-Z]{2}\b"#)
 
-        if let rnRegex = rarityNumberPattern, let scRegex = setCodePattern {
-            let rnMatches = rnRegex.matches(in: ocrText, range: NSRange(ocrText.startIndex..., in: ocrText))
-            let scMatches = scRegex.matches(in: ocrText, range: NSRange(ocrText.startIndex..., in: ocrText))
+        if let scRegex = setCodePattern {
+            let full = NSRange(ocrText.startIndex..., in: ocrText)
+            let scMatches = scRegex.matches(in: ocrText, range: full)
+
+            var numbers: [String] = []
+            if let rnRegex = rarityNumberPattern {
+                for m in rnRegex.matches(in: ocrText, range: full) {
+                    if let r = Range(m.range(at: 1), in: ocrText) { numbers.append(String(ocrText[r])) }
+                }
+            }
+            // Fallback when no rarity letter precedes the number: a zero-padded value
+            // (leading zero) is collector-number-shaped — it won't match a year (2026)
+            // or power/toughness — so pairing it with a found set code is safe.
+            if let pnRegex = paddedNumberPattern {
+                for m in pnRegex.matches(in: ocrText, range: full) {
+                    if let r = Range(m.range(at: 0), in: ocrText) { numbers.append(String(ocrText[r])) }
+                }
+            }
 
             for scMatch in scMatches {
                 guard let setRange = Range(scMatch.range(at: 1), in: ocrText) else { continue }
                 let setCode = String(ocrText[setRange]).lowercased()
-
-                for rnMatch in rnMatches {
-                    guard let numRange = Range(rnMatch.range(at: 1), in: ocrText) else { continue }
-                    let number = String(ocrText[numRange])
+                for number in numbers {
                     add(CollectorNumberCandidate(setCode: setCode, collectorNumber: number))
                 }
             }

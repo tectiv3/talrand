@@ -22,6 +22,7 @@ final class ScannerRegressionTests: XCTestCase {
         (id: "crystal", name: "Crystal Shard", printed: "水晶の破片"),
         (id: "decoy-negate", name: "Negate", printed: "否認"),
         (id: "decoy-opt", name: "Opt", printed: "選択"),
+        (id: "pongify", name: "Pongify", printed: "猿術"),
     ])
 
     // MARK: - Fixture loading
@@ -117,6 +118,30 @@ final class ScannerRegressionTests: XCTestCase {
         XCTAssertTrue(nums.contains("393"), "expected 393 (TSR Crystal Shard); OCR='\(text)' candidates=\(nums)")
     }
 
+    /// Pongify (猿術), SOA #20 — a borderless JP alt-art. End-to-end via the
+    /// collector path: OCR the strip, then resolve set+number against the deck.
+    /// `knownSetCodes` carries "soa" as the live scanner does (from Scryfall), so
+    /// the printed "SOA · 0020" is a trusted set+number match for Pongify.
+    func testPongifyFixtureResolvesViaCollector() throws {
+        let card = try cardCrop("pongify")
+        // knownSetCodes is uppercased to mirror the live scanner (ScryfallAPI returns
+        // codes uppercased; CollectorNumberParser trusts a set only if it's known).
+        let (text, candidates) = ScanOCR.collectorReadout(in: card, knownSetCodes: ["SOA"], ciContext: ciContext)
+        // The point of the parser fix: the "0020 SOA・JP" layout must yield the trusted
+        // SET+number candidate. Bare "20" alone is ambiguous across the deck (many cards
+        // print a #20) and the resolver would correctly refuse it — so this assertion,
+        // not just the resolve below, is what pins the fix.
+        XCTAssertTrue(candidates.contains(CollectorNumberCandidate(setCode: "soa", collectorNumber: "20")),
+                      "expected a soa#20 candidate; OCR='\(text)' candidates=\(candidates)")
+        // Resolution uses the COMPLETE bundled snapshot — it validates parse→resolve
+        // logic, NOT device-data completeness (the live miss was a missing CollectorNumberEntry
+        // row, which this fixture can't catch).
+        let type = ScanOCR.typeReadout(in: card).type
+        let resolved = candidates.lazy.compactMap { self.deckResolver.resolve($0, type: type, nearestId: nil) }.first
+        XCTAssertEqual(resolved?.name, "Pongify",
+                       "OCR='\(text)' candidates=\(candidates.map(\.collectorNumber)) type=\(type ?? "?")")
+    }
+
     // MARK: - Name path (title OCR -> CardNameMatcher)
 
     /// `knownFailure`, when set, marks the case as a documented OCR-quality gap:
@@ -137,6 +162,13 @@ final class ScannerRegressionTests: XCTestCase {
     }
 
     func testCounterspellName() throws { try assertName("counterspell", resolvesTo: "counterspell") }
+
+    func testPongifyName() throws {
+        // Borderless SOA frame: title OCR misreads the kanji (猿術 → "積猯") amid
+        // corner-symbol noise, so the exact-containment matcher misses.
+        try assertName("pongify", resolvesTo: "pongify",
+                       knownFailure: "title OCR misreads kanji on borderless frame (猿術 → 積猯)")
+    }
 
     func testBrainstormName() throws {
         // Title crop OCRs 渦→酒 ("酒まく知識"); the exact-containment matcher misses.
