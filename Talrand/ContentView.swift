@@ -114,6 +114,7 @@ struct ContentView: View {
     private var scanTab: some View {
         CameraScannerView(
             mode: .lookup,
+            isPaused: scannedCard != nil,
             onCardMatched: { card in
                 recordScan(card)
                 scannedCard = card

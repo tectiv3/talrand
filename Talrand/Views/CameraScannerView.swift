@@ -36,6 +36,9 @@ struct CameraPreviewView: UIViewRepresentable {
 
 struct CameraScannerView: View {
     let mode: ScannerMode
+    // Pause capture while a result is presented over the scanner: a sheet does not
+    // trigger onDisappear, so the session would otherwise keep draining battery.
+    var isPaused: Bool = false
     var onCardMatched: ((Card) -> Void)?
     var onNewCardScanned: ((String, String, String) -> Void)?
 
@@ -97,6 +100,13 @@ struct CameraScannerView: View {
             guard let scryfallId else { return }
             cameraService.nameMatchResult = nil
             fireMatch(scryfallId: scryfallId)
+        }
+        .onChange(of: isPaused) { _, paused in
+            if paused {
+                cameraService.stopSession()
+            } else if !showingSearch {
+                cameraService.startSession()
+            }
         }
         .onDisappear {
             cameraService.stopSession()
