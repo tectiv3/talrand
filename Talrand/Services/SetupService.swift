@@ -156,49 +156,89 @@ class SetupService {
             let frontURL = await ScryfallAPI.shared.imageUrl(for: scryfallCard, face: .front) ?? ""
             let backURL = await ScryfallAPI.shared.imageUrl(for: scryfallCard, face: .back)
 
-            var newFrontPath: String?
-            if !frontURL.isEmpty {
-                newFrontPath = try await imageCache.cacheImage(from: frontURL, filename: "\(card.scryfallId)_front.jpg")
-            }
-
-            let isDualFace = scryfallCard.layout == "transform" || scryfallCard.layout == "modal_dfc"
-            var newBackPath: String?
-            if isDualFace, let backURL {
-                newBackPath = try await imageCache.cacheImage(from: backURL, filename: "\(card.scryfallId)_back.jpg")
-            }
+            // Download every image and printing into hand before mutating the
+            // model, so a mid-refresh failure throws and leaves the existing
+            // card + cached image intact (commit only after network success).
+            let images = try await cacheImages(for: card, scryfallCard: scryfallCard, frontURL: frontURL, backURL: backURL)
+            let printings = try await fetchPrintings(oracleId: scryfallCard.oracleId ?? "")
+            let rulings = try await ScryfallAPI.shared.fetchRulings(scryfallId: card.scryfallId)
 
             // Every network op succeeded — now it is safe to commit.
-            card.oracleId = scryfallCard.oracleId ?? ""
-            card.oracleText = scryfallCard.oracleText ?? ""
-            card.manaCost = scryfallCard.manaCost ?? ""
-            card.typeLine = scryfallCard.typeLine ?? card.typeLine
-            card.power = scryfallCard.power
-            card.toughness = scryfallCard.toughness
-            card.colorIdentity = (scryfallCard.colorIdentity ?? []).joined(separator: ",")
-            card.rarity = scryfallCard.rarity
-            card.layout = scryfallCard.layout
-            card.frontImageUrl = frontURL
-            card.backImageUrl = backURL
-            if let newFrontPath { card.localFrontImagePath = newFrontPath }
-            if let newBackPath { card.localBackImagePath = newBackPath }
-
-            if let rulings = try? await ScryfallAPI.shared.fetchRulings(scryfallId: card.scryfallId) {
-                for existing in card.rulings {
-                    modelContext.delete(existing)
-                }
-                card.rulings.removeAll()
-                for ruling in rulings {
-                    let rulingObj = Ruling(date: ruling.publishedAt, source: ruling.source, comment: ruling.comment)
-                    modelContext.insert(rulingObj)
-                    card.rulings.append(rulingObj)
-                }
-            }
+            applyScryfallFields(scryfallCard, to: card, frontURL: frontURL, backURL: backURL)
+            if let path = images.front { card.localFrontImagePath = path }
+            if let path = images.back { card.localBackImagePath = path }
+            applyRulings(rulings, to: card, modelContext: modelContext)
+            applyPrintings(printings, to: card, modelContext: modelContext)
 
             try? modelContext.save()
         } catch {
             // Leave the existing card data and cached image intact.
             print("[refetch] \(card.name) failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Copy the Scryfall payload onto the persisted Card. Pure model mutation,
+    /// no network — callers fetch images/URLs separately.
+    private func applyScryfallFields(_ scryfallCard: ScryfallCard, to card: Card, frontURL: String, backURL: String?) {
+        card.oracleId = scryfallCard.oracleId ?? ""
+        card.oracleText = scryfallCard.oracleText ?? ""
+        card.manaCost = scryfallCard.manaCost ?? ""
+        card.typeLine = scryfallCard.typeLine ?? card.typeLine
+        card.power = scryfallCard.power
+        card.toughness = scryfallCard.toughness
+        card.colorIdentity = (scryfallCard.colorIdentity ?? []).joined(separator: ",")
+        card.rarity = scryfallCard.rarity
+        card.layout = scryfallCard.layout
+        card.frontImageUrl = frontURL
+        card.backImageUrl = backURL
+    }
+
+    /// Download front/back images for the card. Returns the cached local paths
+    /// without touching the model, so callers can defer the commit until after
+    /// every network op has succeeded.
+    private func cacheImages(
+        for card: Card,
+        scryfallCard: ScryfallCard,
+        frontURL: String,
+        backURL: String?
+    ) async throws -> (front: String?, back: String?) {
+        var frontPath: String?
+        if !frontURL.isEmpty {
+            frontPath = try await imageCache.cacheImage(from: frontURL, filename: "\(card.scryfallId)_front.jpg")
+        }
+
+        let isDualFace = scryfallCard.layout == "transform" || scryfallCard.layout == "modal_dfc"
+        var backPath: String?
+        if isDualFace, let backURL {
+            backPath = try await imageCache.cacheImage(from: backURL, filename: "\(card.scryfallId)_back.jpg")
+        }
+
+        return (frontPath, backPath)
+    }
+
+    private func fetchPrintings(oracleId: String) async throws -> [ScryfallCard] {
+        oracleId.isEmpty ? [] : try await ScryfallAPI.shared.fetchAllPrintings(oracleId: oracleId)
+    }
+
+    @MainActor
+    private func applyRulings(_ rulings: [ScryfallRuling], to card: Card, modelContext: ModelContext) {
+        for existing in card.rulings {
+            modelContext.delete(existing)
+        }
+        card.rulings.removeAll()
+        for ruling in rulings {
+            let rulingObj = Ruling(date: ruling.publishedAt, source: ruling.source, comment: ruling.comment)
+            modelContext.insert(rulingObj)
+            card.rulings.append(rulingObj)
+        }
+    }
+
+    @MainActor
+    private func applyPrintings(_ printings: [ScryfallCard], to card: Card, modelContext: ModelContext) {
+        let entries = printings.map {
+            CollectorNumberEntry(setCode: $0.set, collectorNumber: $0.collectorNumber, cardName: $0.name)
+        }
+        CollectorIndex.replace(cardName: card.name, with: entries, in: modelContext)
     }
 
     @MainActor
@@ -339,57 +379,20 @@ class SetupService {
             do {
                 let scryfallCard = try await ScryfallAPI.shared.fetchCard(scryfallId: card.scryfallId)
 
-                card.oracleId = scryfallCard.oracleId ?? ""
-                card.oracleText = scryfallCard.oracleText ?? ""
-                card.manaCost = scryfallCard.manaCost ?? ""
-                card.typeLine = scryfallCard.typeLine ?? card.typeLine
-                card.power = scryfallCard.power
-                card.toughness = scryfallCard.toughness
-                card.colorIdentity = (scryfallCard.colorIdentity ?? []).joined(separator: ",")
-                card.rarity = scryfallCard.rarity
-                card.layout = scryfallCard.layout
-
                 let frontURL = await ScryfallAPI.shared.imageUrl(for: scryfallCard, face: .front) ?? ""
                 let backURL = await ScryfallAPI.shared.imageUrl(for: scryfallCard, face: .back)
 
-                card.frontImageUrl = frontURL
-                card.backImageUrl = backURL
-
-                for existing in card.rulings {
-                    modelContext.delete(existing)
-                }
-                card.rulings.removeAll()
+                applyScryfallFields(scryfallCard, to: card, frontURL: frontURL, backURL: backURL)
 
                 let rulings = try await ScryfallAPI.shared.fetchRulings(scryfallId: card.scryfallId)
-                for ruling in rulings {
-                    let rulingObj = Ruling(date: ruling.publishedAt, source: ruling.source, comment: ruling.comment)
-                    modelContext.insert(rulingObj)
-                    card.rulings.append(rulingObj)
-                }
+                applyRulings(rulings, to: card, modelContext: modelContext)
 
-                let oracleId = scryfallCard.oracleId ?? ""
-                let printings = oracleId.isEmpty ? [] : try await ScryfallAPI.shared.fetchAllPrintings(oracleId: oracleId)
-                for printing in printings {
-                    let entry = CollectorNumberEntry(
-                        setCode: printing.set,
-                        collectorNumber: printing.collectorNumber,
-                        cardName: printing.name
-                    )
-                    modelContext.insert(entry)
-                }
+                let printings = try await fetchPrintings(oracleId: scryfallCard.oracleId ?? "")
+                applyPrintings(printings, to: card, modelContext: modelContext)
 
-                if !frontURL.isEmpty {
-                    let frontFilename = "\(card.scryfallId)_front.jpg"
-                    let frontPath = try await imageCache.cacheImage(from: frontURL, filename: frontFilename)
-                    card.localFrontImagePath = frontPath
-                }
-
-                let isDualFace = card.layout == "transform" || card.layout == "modal_dfc"
-                if isDualFace, let backURL {
-                    let backFilename = "\(card.scryfallId)_back.jpg"
-                    let backPath = try await imageCache.cacheImage(from: backURL, filename: backFilename)
-                    card.localBackImagePath = backPath
-                }
+                let images = try await cacheImages(for: card, scryfallCard: scryfallCard, frontURL: frontURL, backURL: backURL)
+                if let path = images.front { card.localFrontImagePath = path }
+                if let path = images.back { card.localBackImagePath = path }
 
                 try? modelContext.save()
                 completedCards += 1

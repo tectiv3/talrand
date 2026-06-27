@@ -60,6 +60,8 @@ targets:
       - path: Talrand/Services/CollectorNumberParser.swift
       - path: Talrand/Services/DeckResolver.swift
       - path: Talrand/Services/MatchRanking.swift
+      - path: Talrand/Services/CollectorIndex.swift
+      - path: Talrand/Models/CollectorNumberEntry.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.talrand.tests
