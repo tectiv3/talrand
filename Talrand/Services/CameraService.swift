@@ -147,6 +147,11 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
 
         processingQueue.async { [weak self] in
             self?.captureSession.startRunning()
+            // After startRunning so the device is active before locking it — matches
+            // the toggleTorch/stopSession precedent of configuring an established session.
+            if let device = self?.activeDevice {
+                self?.configureForCloseRange(device)
+            }
             Task { @MainActor in
                 self?.isRunning = true
             }
@@ -220,6 +225,27 @@ class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
                 device.unlockForConfiguration()
                 Task { @MainActor in self.torchOn = on }
             } catch {}
+        }
+    }
+
+    /// Applies always-on AF hints and, when the `closeRangeZoom` toggle is on, the
+    /// computed close-range zoom. Re-applied on every session start so flipping the
+    /// gear-menu toggle takes effect on reopen without a relaunch.
+    private func configureForCloseRange(_ device: AVCaptureDevice) {
+        // Bias autofocus to the near range so it stops hunting toward infinity on
+        // close-held cards. The WWDC21 zoom technique was measured inert on this
+        // hardware (auto-macro already focuses to ~2cm), so only the AF hints remain.
+        // Setting an unsupported focusMode/autoFocusRangeRestriction throws an
+        // Objective-C NSInvalidArgumentException — not a catchable Swift error — so
+        // each set is guarded by its support check.
+        guard (try? device.lockForConfiguration()) != nil else { return }
+        defer { device.unlockForConfiguration() }
+
+        if device.isFocusModeSupported(.continuousAutoFocus) {
+            device.focusMode = .continuousAutoFocus
+        }
+        if device.isAutoFocusRangeRestrictionSupported {
+            device.autoFocusRangeRestriction = .near
         }
     }
 
