@@ -2,6 +2,10 @@
 
 A personal iOS companion app for the [Talrand, Sky Summoner](https://scryfall.com/search?q=talrand+sky+summoner) Commander deck. Built for mid-game quick reference when half your physical cards are in Japanese.
 
+<p align="center">
+  <img src="docs/screenshots/deck-list.jpg" alt="Talrand deck list" width="300">
+</p>
+
 ## Features
 
 - **Card scanner** — point your camera at any card in the deck. Uses Vision framework neural fingerprints (`VNFeaturePrintObservation`) to match against all ~100 cards in sub-millisecond time. Works regardless of card language. Falls back to OCR on collector numbers.
